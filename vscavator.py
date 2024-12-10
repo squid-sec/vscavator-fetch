@@ -1,63 +1,58 @@
+import logging.config
 import requests
 import os
 import zipfile
+from dateutil import parser
+import logging
+from packaging import version
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",)
+
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 DOWNLOAD_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
 HEADERS = {
     "Content-Type": "application/json",
-    'accept': 'application/json;api-version=7.2-preview.1;excludeUrls=true',
+    "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
+LAST_PAGE_NUMBER = 1
+PAGE_SIZE = 1
 
-def get_extensions():
-    extensions = []
-    for i in range(1, 3):
-        payload = {
-            'filters': [
-                {
-                    'criteria': [
-                        {
-                            'filterType': 8,
-                            'value': 'Microsoft.VisualStudio.Code',
-                        },
-                        {
-                            'filterType': 10,
-                            'value': 'target:"Microsoft.VisualStudio.Code" ',
-                        },
-                    ],
-                    'pageSize': 2,
-                    'pageNumber': i,
-                    'sortBy': 0,
-                    'sortOrder': 0,
-                },
-            ],
-        }
+def get_extensions(page_number, page_size):
+    payload = {
+        'filters': [
+            {
+                'criteria': [
+                    {
+                        'filterType': 8,
+                        'value': 'Microsoft.VisualStudio.Code',
+                    },
+                    {
+                        'filterType': 10,
+                        'value': 'target:"Microsoft.VisualStudio.Code" ',
+                    },
+                ],
+                'pageSize': page_size,
+                'pageNumber': page_number,
+            },
+        ],
+    }
 
+    try:
         response = requests.post(EXTENSIONS_URL, headers=HEADERS, json=payload)
-        try:
-            results = response.json()["results"][0]["extensions"]
-            extensions.extend(results)
-        except Exception as e:
-            print(f"error while fetching extensions during iteration {str(i)}: {str(e)}")
-
-    return extensions
-
-def deduplicate_extensions(extensions):
-    seen = set()
-    deduplicated = []
-    for extension in extensions:
-        ext_id = extension.get("extensionId")
-        if ext_id not in seen:
-            seen.add(ext_id)
-            deduplicated.append(extension)
-    return deduplicated
+        results = response.json()["results"][0]["extensions"]
+        logging.info(f"fetched extensions from page number {str(page_number)} with page size {str(page_size)}")
+        return results
+    except Exception as e:
+        logging.error(f"error while fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
+        return []
 
 def download_extension(publisher, name, version):
     url = DOWNLOAD_URL.format(publisher=publisher, name=name, version=version)
 
     response = requests.get(url, stream=True)
     if response.status_code == 200:
-        file_path = os.path.join("/Users/nwernink/Desktop/Coding/squid/vscavator/extensions/zipped", f"{publisher}-{name}-{version}.vsix")
+        file_path = os.path.join("extensions/zipped", f"{publisher}-{name}-{version}.vsix")
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
@@ -66,11 +61,11 @@ def download_extension(publisher, name, version):
         print(f"Failed to download {publisher}/{name}@{version}")
 
 def unzip_file(file, extension_id):
-    extract_to_folder = f"/Users/nwernink/Desktop/Coding/squid/vscavator/extensions/unzipped/{extension_id}"
+    extract_to_folder = f"extensions/unzipped/{extension_id}"
     with zipfile.ZipFile(file, 'r') as zip_ref:
         zip_ref.extractall(extract_to_folder)
 
-def get_extension_releases(identifier):
+def get_extension_releases(extension_identifier):
     json_data = {
         'assetTypes': None,
         'filters': [
@@ -78,20 +73,138 @@ def get_extension_releases(identifier):
                 'criteria': [
                     {
                         'filterType': 7,
-                        'value': identifier,
+                        'value': extension_identifier,
                     },
                 ],
-                'direction': 2,
                 'pageSize': 100,
                 'pageNumber': 1,
-                'sortBy': 0,
-                'sortOrder': 0,
-                'pagingToken': None,
             },
         ],
         'flags': 2151,
     }
 
-    response = requests.post(EXTENSIONS_URL, json=json_data, headers=HEADERS)
-    for x in response.json()["results"][0]["extensions"][0]["versions"]:
-        print(x["version"])
+    try:
+        response = requests.post(EXTENSIONS_URL, json=json_data, headers=HEADERS)
+        results = response.json()["results"][0]["extensions"][0]
+        logging.info(f"fetched extension releases for extension {extension_identifier}")
+        return results
+    except Exception as e:
+        logging.error(f"error while fetching extension releases for extension {extension_identifier}: {str(e)}")
+        return []
+
+def extract_publisher_metadata(extensions):
+    publishers_metadata = dict()
+
+    for extension in extensions:
+        publisher_metadata = extension["publisher"]
+
+        publisher_id = publisher_metadata["publisherId"]
+        publisher_name = publisher_metadata["publisherName"]
+        display_name = publisher_metadata["displayName"]
+        flags = publisher_metadata["flags"].split(", ")
+        domain = publisher_metadata["domain"]
+        is_domain_verified = publisher_metadata["isDomainVerified"]
+
+        publishers_metadata[publisher_id] = {
+            "publisherId": publisher_id,
+            "publisherName": publisher_name,
+            "displayName": display_name,
+            "flags": flags,
+            "domain": domain,
+            "isDomainVerified": is_domain_verified
+        }
+
+    return publishers_metadata
+
+def extract_extension_metadata(extensions):
+    extensions_metadata = dict()
+
+    for extension in extensions:
+        extension_id = extension["extensionId"]
+        extension_name = extension["extensionName"]
+        display_name = extension["displayName"]
+        flags = extension["flags"].split(", ")
+        last_updated = parser.isoparse(extension["lastUpdated"])
+        published_date = parser.isoparse(extension["publishedDate"])
+        release_date = parser.isoparse(extension["releaseDate"])
+        short_description = extension["shortDescription"]
+        publisher_id = extension["publisher"]["publisherId"]
+
+        get_latest_version = lambda v: max(v, key=lambda x: version.parse(x["version"]))["version"]
+        versions = extension["versions"]
+        latest_release_version = get_latest_version(versions)
+
+        extensions_metadata[extension_id] = {
+            "extensionId": extension_id,
+            "extensionName": extension_name,
+            "displayName": display_name,
+            "flags": flags,
+            "lastUpdated": last_updated,
+            "publishedDate": published_date,
+            "releaseDate": release_date,
+            "shortDescription": short_description,
+            "latestReleaseVersion": latest_release_version,
+            "publisherId": publisher_id
+        }
+
+    return extensions_metadata
+
+def generate_extension_identifiers(extensions, publishers):
+    extension_identifiers = set()
+
+    for extension_id in extensions:
+        publisher_id = extensions[extension_id]["publisherId"]
+        publisher_metadata = publishers[publisher_id]
+
+        publisher_name = publisher_metadata["publisherName"]
+        extension_name = extensions[extension_id]["extensionName"]
+
+        extension_identifier = f"{publisher_name}.{extension_name}"
+        extension_identifiers.add(extension_identifier)
+
+    return extension_identifiers
+
+def extract_release_metadata(extension_releases):
+    releases = dict()
+
+    extension_id = extension_releases["extensionId"]
+    extension_versions = extension_releases["versions"]
+    for extension_version in extension_versions:
+        version = extension_version["version"]
+        flags = extension_version["flags"].split(", ")
+        last_updated = parser.isoparse(extension_version["lastUpdated"])
+
+        releases[version] = {
+            "version": version,
+            "flags": flags,
+            "lastUpdated": last_updated,
+            "extensionId": extension_id
+        }
+
+    return releases
+
+
+def main():
+    all_extensions = []
+    for page_number in range(1, LAST_PAGE_NUMBER + 1):
+        extensions = get_extensions(page_number, PAGE_SIZE)
+        all_extensions.extend(extensions)
+
+    extension_data = extract_extension_metadata(all_extensions)
+    publisher_data = extract_publisher_metadata(all_extensions)
+
+    extension_identifiers = generate_extension_identifiers(extension_data, publisher_data)
+
+    all_releases = {}
+    for extension_identifier in extension_identifiers:
+        # TODO: Check if the latest release has already been fetched and if it has continue to the next extension
+        extension_releases = get_extension_releases(extension_identifier)
+
+        extension_id = extension_releases["extensionId"]
+        release_data = extract_release_metadata(extension_releases)
+        all_releases[extension_id] = release_data
+
+    print(all_releases)
+
+if __name__ == "__main__":
+    main()
