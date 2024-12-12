@@ -6,8 +6,15 @@ from dateutil import parser
 import logging
 from packaging import version
 import pandas as pd
+from dotenv import load_dotenv
+import os
+import psycopg2
+from psycopg2.extras import execute_values
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+load_dotenv()
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 DOWNLOAD_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
@@ -17,6 +24,21 @@ HEADERS = {
 }
 LAST_PAGE_NUMBER = 1
 PAGE_SIZE = 2
+
+CREATE_EXTENSIONS_TABLE_QUERY = """
+"""
+CREATE_PUBLISHERS_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS publishers (
+        publisher_id VARCHAR(255) PRIMARY KEY NOT NULL,
+        publisher_name VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        flags VARCHAR(255) ARRAY,
+        domain VARCHAR(255),
+        is_domain_verified BOOLEAN NOT NULL
+    );
+"""
+CREATE_RELEASES_TABLE_QUERY = """
+"""
 
 
 def get_extensions(page_number, page_size):
@@ -107,12 +129,12 @@ def extract_publisher_metadata(extensions):
         is_domain_verified = publisher_metadata["isDomainVerified"]
 
         publishers_metadata.append({
-            "publisherId": publisher_id,
-            "publisherName": publisher_name,
-            "displayName": display_name,
+            "publisher_id": publisher_id,
+            "publisher_name": publisher_name,
+            "display_name": display_name,
             "flags": flags,
             "domain": domain,
-            "isDomainVerified": is_domain_verified
+            "is_domain_verified": is_domain_verified
         })
 
     return pd.DataFrame(publishers_metadata)
@@ -173,7 +195,83 @@ def extract_release_metadata(extension_releases):
     return pd.DataFrame(releases)
 
 
+def upsert_publishers(connection, publishers_df):
+    try:
+        with connection.cursor() as cursor:
+            upsert_query = """
+                INSERT INTO publishers (
+                    publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
+                ) VALUES %s
+                ON CONFLICT (publisher_id) DO UPDATE SET
+                    publisher_name = EXCLUDED.publisher_name,
+                    display_name = EXCLUDED.display_name,
+                    flags = EXCLUDED.flags,
+                    domain = EXCLUDED.domain,
+                    is_domain_verified = EXCLUDED.is_domain_verified
+            """
+
+            values = [
+                (
+                    row["publisher_id"],
+                    row["publisher_name"],
+                    row["display_name"],
+                    row["flags"],
+                    row["domain"],
+                    row["is_domain_verified"]
+                ) for _, row in publishers_df.iterrows()
+            ]
+
+            execute_values(cursor, upsert_query, values)
+            connection.commit()
+            logging.info("Successfully upserted publishers data to the database.")
+    except Exception as e:
+        logging.error(f"Error upserting publishers data to the database: {str(e)}")
+
+def create_table(connection, table_name, create_table_query):
+    if connection is None:
+        logging.error("database connection to create table is none")
+        return
+
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(create_table_query)
+        logging.info(f"executed create {table_name} table query")
+        connection.commit()
+        logging.info(f"commited create {table_name} table query")
+    except Exception as e:
+        connection.rollback()
+        logging.error(f"rolled back create {table_name} table query: {str(e)}")
+    finally:
+        cursor.close()
+        logging.info(f"closed create {table_name} table query cursor")
+
+def connect_to_database():
+    try:
+        connection = psycopg2.connect(
+            dbname=os.getenv("PG_DATABASE"),
+            user=os.getenv("PG_USER"),
+            password=os.getenv("PG_PASSWORD"),
+            host=os.getenv("PG_HOST"),
+            port=os.getenv("PG_PORT")
+        )
+        logging.info(f"connected to database {os.getenv("PG_DATABASE")} on host {os.getenv("PG_HOST")}")
+        return connection
+    except Exception as e:
+        logging.error(f"failed to connect to database {os.getenv("PG_DATABASE")} on host {os.getenv("PG_HOST")}: {str(e)}")
+        return None
+    
+def create_tables(connection):
+    pass
+
 def main():
+    connection = connect_to_database()
+    if connection is None:
+        return
+
+    create_tables(connection)
+
+
     all_extensions = []
     for page_number in range(1, LAST_PAGE_NUMBER + 1):
         extensions = get_extensions(page_number, PAGE_SIZE)
@@ -190,7 +288,6 @@ def main():
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
-
 
 if __name__ == "__main__":
     main()
