@@ -9,7 +9,6 @@ import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",)
 
-
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 DOWNLOAD_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
 HEADERS = {
@@ -17,7 +16,8 @@ HEADERS = {
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
 LAST_PAGE_NUMBER = 1
-PAGE_SIZE = 1
+PAGE_SIZE = 2
+
 
 def get_extensions(page_number, page_size):
     payload = {
@@ -181,11 +181,8 @@ def main():
 
     extensions_df = extract_extension_metadata(all_extensions)
     publishers_df = extract_publisher_metadata(all_extensions)
-    print(extensions_df.head())
-    print(publishers_df.head())
 
     extension_identifiers = extensions_df["extensionIdentifier"].tolist()
-    print(extension_identifiers)
 
     releases_df = pd.DataFrame()
     for extension_identifier in extension_identifiers:
@@ -194,7 +191,6 @@ def main():
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
 
-    print(releases_df.head())
 
 if __name__ == "__main__":
     main()
