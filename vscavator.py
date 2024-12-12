@@ -5,6 +5,7 @@ import zipfile
 from dateutil import parser
 import logging
 from packaging import version
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",)
 
@@ -93,7 +94,7 @@ def get_extension_releases(extension_identifier):
         return []
 
 def extract_publisher_metadata(extensions):
-    publishers_metadata = dict()
+    publishers_metadata = []
 
     for extension in extensions:
         publisher_metadata = extension["publisher"]
@@ -105,19 +106,19 @@ def extract_publisher_metadata(extensions):
         domain = publisher_metadata["domain"]
         is_domain_verified = publisher_metadata["isDomainVerified"]
 
-        publishers_metadata[publisher_id] = {
+        publishers_metadata.append({
             "publisherId": publisher_id,
             "publisherName": publisher_name,
             "displayName": display_name,
             "flags": flags,
             "domain": domain,
             "isDomainVerified": is_domain_verified
-        }
+        })
 
-    return publishers_metadata
+    return pd.DataFrame(publishers_metadata)
 
 def extract_extension_metadata(extensions):
-    extensions_metadata = dict()
+    extensions_metadata = []
 
     for extension in extensions:
         extension_id = extension["extensionId"]
@@ -129,12 +130,14 @@ def extract_extension_metadata(extensions):
         release_date = parser.isoparse(extension["releaseDate"])
         short_description = extension["shortDescription"]
         publisher_id = extension["publisher"]["publisherId"]
+        publisher_name = extension["publisher"]["publisherName"]
+        extension_identifier = f"{publisher_name}.{extension_name}"
 
         get_latest_version = lambda v: max(v, key=lambda x: version.parse(x["version"]))["version"]
         versions = extension["versions"]
         latest_release_version = get_latest_version(versions)
 
-        extensions_metadata[extension_id] = {
+        extensions_metadata.append({
             "extensionId": extension_id,
             "extensionName": extension_name,
             "displayName": display_name,
@@ -144,28 +147,14 @@ def extract_extension_metadata(extensions):
             "releaseDate": release_date,
             "shortDescription": short_description,
             "latestReleaseVersion": latest_release_version,
-            "publisherId": publisher_id
-        }
+            "publisherId": publisher_id,
+            "extensionIdentifier": extension_identifier
+        })
 
-    return extensions_metadata
-
-def generate_extension_identifiers(extensions, publishers):
-    extension_identifiers = set()
-
-    for extension_id in extensions:
-        publisher_id = extensions[extension_id]["publisherId"]
-        publisher_metadata = publishers[publisher_id]
-
-        publisher_name = publisher_metadata["publisherName"]
-        extension_name = extensions[extension_id]["extensionName"]
-
-        extension_identifier = f"{publisher_name}.{extension_name}"
-        extension_identifiers.add(extension_identifier)
-
-    return extension_identifiers
+    return pd.DataFrame(extensions_metadata)
 
 def extract_release_metadata(extension_releases):
-    releases = dict()
+    releases = []
 
     extension_id = extension_releases["extensionId"]
     extension_versions = extension_releases["versions"]
@@ -174,14 +163,14 @@ def extract_release_metadata(extension_releases):
         flags = extension_version["flags"].split(", ")
         last_updated = parser.isoparse(extension_version["lastUpdated"])
 
-        releases[version] = {
+        releases.append({
             "version": version,
             "flags": flags,
             "lastUpdated": last_updated,
             "extensionId": extension_id
-        }
+        })
 
-    return releases
+    return pd.DataFrame(releases)
 
 
 def main():
@@ -190,21 +179,22 @@ def main():
         extensions = get_extensions(page_number, PAGE_SIZE)
         all_extensions.extend(extensions)
 
-    extension_data = extract_extension_metadata(all_extensions)
-    publisher_data = extract_publisher_metadata(all_extensions)
+    extensions_df = extract_extension_metadata(all_extensions)
+    publishers_df = extract_publisher_metadata(all_extensions)
+    print(extensions_df.head())
+    print(publishers_df.head())
 
-    extension_identifiers = generate_extension_identifiers(extension_data, publisher_data)
+    extension_identifiers = extensions_df["extensionIdentifier"].tolist()
+    print(extension_identifiers)
 
-    all_releases = {}
+    releases_df = pd.DataFrame()
     for extension_identifier in extension_identifiers:
         # TODO: Check if the latest release has already been fetched and if it has continue to the next extension
         extension_releases = get_extension_releases(extension_identifier)
+        extension_releases_df = extract_release_metadata(extension_releases)
+        releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
 
-        extension_id = extension_releases["extensionId"]
-        release_data = extract_release_metadata(extension_releases)
-        all_releases[extension_id] = release_data
-
-    print(all_releases)
+    print(releases_df.head())
 
 if __name__ == "__main__":
     main()
