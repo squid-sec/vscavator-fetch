@@ -10,11 +10,15 @@ from dotenv import load_dotenv
 import os
 import psycopg2
 from psycopg2.extras import execute_values
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 load_dotenv()
+
+s3 = boto3.client("s3")
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 DOWNLOAD_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
@@ -22,8 +26,8 @@ HEADERS = {
     "Content-Type": "application/json",
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
-LAST_PAGE_NUMBER = 2
-PAGE_SIZE = 4
+LAST_PAGE_NUMBER = 1
+PAGE_SIZE = 2
 
 CREATE_EXTENSIONS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS extensions (
@@ -90,16 +94,21 @@ def get_extensions(page_number, page_size):
         logging.error(f"error while fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
         return []
 
-def download_extension(publisher, name, version):
+def upload_extension_to_s3(publisher, name, version):
     url = DOWNLOAD_URL.format(publisher=publisher, name=name, version=version)
 
     response = requests.get(url, stream=True)
     if response.status_code == 200:
-        file_path = os.path.join("extensions/zipped", f"{publisher}-{name}-{version}.vsix")
-        with open(file_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"Downloaded: {file_path}")
+        s3_key = f"extensions/{publisher}/{name}/{version}.vsix"
+        try:
+            s3.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
+            print(f"Uploaded to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
+        except NoCredentialsError:
+            print("AWS credentials not found.")
+        except PartialCredentialsError:
+            print("Incomplete AWS credentials provided.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
     else:
         print(f"Failed to download {publisher}/{name}@{version}")
 
@@ -401,6 +410,16 @@ def main():
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
+
+
+    releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
+    combined_df = releases_extensions_df.merge(publishers_df, on="publisher_id", how="inner")
+
+    for _, row in combined_df.iterrows():
+        publisher_name = row["publisher_name"]
+        extension_name = row["extension_name"]
+        version = row["version"]
+        upload_extension_to_s3(publisher_name, extension_name, version)
 
     upsert_extensions(connection, extensions_df)
     upsert_publishers(connection, publishers_df)
