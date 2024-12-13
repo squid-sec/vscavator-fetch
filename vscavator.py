@@ -26,6 +26,19 @@ LAST_PAGE_NUMBER = 1
 PAGE_SIZE = 2
 
 CREATE_EXTENSIONS_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS extensions (
+        extension_id VARCHAR(255) PRIMARY KEY NOT NULL,
+        extension_name VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        flags VARCHAR(255) ARRAY,
+        last_updated DATE NOT NULL,
+        published_date DATE NOT NULL,
+        release_date DATE NOT NULL,
+        short_description VARCHAR(255) NOT NULL,
+        latest_release_version VARCHAR(255) NOT NULL,
+        publisher_id VARCHAR(255) NOT NULL,
+        extension_identifier VARCHAR(255) NOT NULL
+    );
 """
 CREATE_PUBLISHERS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS publishers (
@@ -38,6 +51,13 @@ CREATE_PUBLISHERS_TABLE_QUERY = """
     );
 """
 CREATE_RELEASES_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS releases (
+        release_id VARCHAR(255) PRIMARY KEY NOT NULL,
+        extension_id VARCHAR(255) NOT NULL,
+        version VARCHAR(255) NOT NULL,
+        last_updated DATE NOT NULL,
+        flags VARCHAR(255) ARRAY
+    );
 """
 
 
@@ -160,17 +180,17 @@ def extract_extension_metadata(extensions):
         latest_release_version = get_latest_version(versions)
 
         extensions_metadata.append({
-            "extensionId": extension_id,
-            "extensionName": extension_name,
-            "displayName": display_name,
+            "extension_id": extension_id,
+            "extension_name": extension_name,
+            "display_name": display_name,
             "flags": flags,
-            "lastUpdated": last_updated,
-            "publishedDate": published_date,
-            "releaseDate": release_date,
-            "shortDescription": short_description,
-            "latestReleaseVersion": latest_release_version,
-            "publisherId": publisher_id,
-            "extensionIdentifier": extension_identifier
+            "last_updated": last_updated,
+            "published_date": published_date,
+            "release_date": release_date,
+            "short_description": short_description,
+            "latest_release_version": latest_release_version,
+            "publisher_id": publisher_id,
+            "extension_identifier": extension_identifier
         })
 
     return pd.DataFrame(extensions_metadata)
@@ -182,50 +202,114 @@ def extract_release_metadata(extension_releases):
     extension_versions = extension_releases["versions"]
     for extension_version in extension_versions:
         version = extension_version["version"]
+        release_id = extension_id + "-" + version
         flags = extension_version["flags"].split(", ")
         last_updated = parser.isoparse(extension_version["lastUpdated"])
 
         releases.append({
+            "release_id": release_id,
             "version": version,
             "flags": flags,
-            "lastUpdated": last_updated,
-            "extensionId": extension_id
+            "last_updated": last_updated,
+            "extension_id": extension_id
         })
 
     return pd.DataFrame(releases)
 
-
-def upsert_publishers(connection, publishers_df):
+def upsert_data(connection, table_name, upsert_data_query, data):
     try:
         with connection.cursor() as cursor:
-            upsert_query = """
-                INSERT INTO publishers (
-                    publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
-                ) VALUES %s
-                ON CONFLICT (publisher_id) DO UPDATE SET
-                    publisher_name = EXCLUDED.publisher_name,
-                    display_name = EXCLUDED.display_name,
-                    flags = EXCLUDED.flags,
-                    domain = EXCLUDED.domain,
-                    is_domain_verified = EXCLUDED.is_domain_verified
-            """
-
-            values = [
-                (
-                    row["publisher_id"],
-                    row["publisher_name"],
-                    row["display_name"],
-                    row["flags"],
-                    row["domain"],
-                    row["is_domain_verified"]
-                ) for _, row in publishers_df.iterrows()
-            ]
-
-            execute_values(cursor, upsert_query, values)
+            execute_values(cursor, upsert_data_query, data)
             connection.commit()
-            logging.info("Successfully upserted publishers data to the database.")
+            logging.info(f"Successfully upserted {table_name} data to the database.")
     except Exception as e:
-        logging.error(f"Error upserting publishers data to the database: {str(e)}")
+        logging.error(f"Error upserting {table_name} data to the database: {str(e)}")
+
+def upsert_extensions(connection, extensions_df):
+    upsert_query = """
+        INSERT INTO extensions (
+            extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, short_description, latest_release_version, publisher_id, extension_identifier
+        ) VALUES %s
+        ON CONFLICT (extension_id) DO UPDATE SET
+            extension_name = EXCLUDED.extension_name,
+            display_name = EXCLUDED.display_name,
+            flags = EXCLUDED.flags,
+            last_updated = EXCLUDED.last_updated,
+            published_date = EXCLUDED.published_date,
+            release_date = EXCLUDED.release_date,
+            short_description = EXCLUDED.short_description,
+            latest_release_version = EXCLUDED.latest_release_version,
+            publisher_id = EXCLUDED.publisher_id,
+            extension_identifier = EXCLUDED.extension_identifier
+    """
+
+    values = [
+        (
+            row["extension_id"],
+            row["extension_name"],
+            row["display_name"],
+            row["flags"],
+            row["last_updated"],
+            row["published_date"],
+            row["release_date"],
+            row["short_description"],
+            row["latest_release_version"],
+            row["publisher_id"],
+            row["extension_identifier"]
+        ) for _, row in extensions_df.iterrows()
+    ]
+
+    upsert_data(connection, "extensions", upsert_query, values)
+
+def upsert_publishers(connection, publishers_df):
+    upsert_query = """
+        INSERT INTO publishers (
+            publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
+        ) VALUES %s
+        ON CONFLICT (publisher_id) DO UPDATE SET
+            publisher_name = EXCLUDED.publisher_name,
+            display_name = EXCLUDED.display_name,
+            flags = EXCLUDED.flags,
+            domain = EXCLUDED.domain,
+            is_domain_verified = EXCLUDED.is_domain_verified
+    """
+
+    values = [
+        (
+            row["publisher_id"],
+            row["publisher_name"],
+            row["display_name"],
+            row["flags"],
+            row["domain"],
+            row["is_domain_verified"]
+        ) for _, row in publishers_df.iterrows()
+    ]
+
+    upsert_data(connection, "publishers", upsert_query, values)
+
+def upsert_releases(connection, releases_df):
+    upsert_query = """
+        INSERT INTO releases (
+            release_id, version, extension_id, flags, last_updated
+        ) VALUES %s
+        ON CONFLICT (release_id) DO UPDATE SET
+            version = EXCLUDED.version,
+            extension_id = EXCLUDED.extension_id,
+            flags = EXCLUDED.flags,
+            last_updated = EXCLUDED.last_updated
+    """
+
+    values = [
+        (
+            row["release_id"],
+            row["version"],
+            row["extension_id"],
+            row["flags"],
+            row["last_updated"],
+        ) for _, row in releases_df.iterrows()
+    ]
+
+    upsert_data(connection, "publishers", upsert_query, values)
 
 def create_table(connection, table_name, create_table_query):
     if connection is None:
@@ -255,14 +339,16 @@ def connect_to_database():
             host=os.getenv("PG_HOST"),
             port=os.getenv("PG_PORT")
         )
-        logging.info(f"connected to database {os.getenv("PG_DATABASE")} on host {os.getenv("PG_HOST")}")
+        logging.info(f"connected to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}")
         return connection
     except Exception as e:
-        logging.error(f"failed to connect to database {os.getenv("PG_DATABASE")} on host {os.getenv("PG_HOST")}: {str(e)}")
+        logging.error(f"failed to connect to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}: {str(e)}")
         return None
     
 def create_tables(connection):
-    pass
+    create_table(connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
+    create_table(connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
+    create_table(connection, "releases", CREATE_RELEASES_TABLE_QUERY)
 
 def main():
     connection = connect_to_database()
@@ -280,7 +366,7 @@ def main():
     extensions_df = extract_extension_metadata(all_extensions)
     publishers_df = extract_publisher_metadata(all_extensions)
 
-    extension_identifiers = extensions_df["extensionIdentifier"].tolist()
+    extension_identifiers = extensions_df["extension_identifier"].tolist()
 
     releases_df = pd.DataFrame()
     for extension_identifier in extension_identifiers:
@@ -288,6 +374,10 @@ def main():
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
+
+    upsert_extensions(connection, extensions_df)
+    upsert_publishers(connection, publishers_df)
+    upsert_releases(connection, releases_df)
 
 if __name__ == "__main__":
     main()
