@@ -22,8 +22,8 @@ HEADERS = {
     "Content-Type": "application/json",
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
-LAST_PAGE_NUMBER = 1
-PAGE_SIZE = 2
+LAST_PAGE_NUMBER = 2
+PAGE_SIZE = 4
 
 CREATE_EXTENSIONS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS extensions (
@@ -309,7 +309,7 @@ def upsert_releases(connection, releases_df):
         ) for _, row in releases_df.iterrows()
     ]
 
-    upsert_data(connection, "publishers", upsert_query, values)
+    upsert_data(connection, "releases", upsert_query, values)
 
 def create_table(connection, table_name, create_table_query):
     if connection is None:
@@ -350,13 +350,34 @@ def create_tables(connection):
     create_table(connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
     create_table(connection, "releases", CREATE_RELEASES_TABLE_QUERY)
 
+def get_old_latest_release_version(connection, extension_identifier):
+    query = f"""
+        SELECT latest_release_version
+        FROM extensions
+        WHERE extension_identifier = '{extension_identifier}';
+    """
+
+    cursor = connection.cursor()
+    cursor.execute(query)
+    result = cursor.fetchone()
+
+    return result[0] if result else None
+
+def get_new_latest_release_version(df, extension_identifier):
+    latest_release_version = df.loc[
+        df["extension_identifier"] == extension_identifier, "latest_release_version"
+    ]
+
+    if latest_release_version.empty:
+        return None
+    else:
+        return latest_release_version.iloc[-1]
+
 def main():
     connection = connect_to_database()
     if connection is None:
         return
-
     create_tables(connection)
-
 
     all_extensions = []
     for page_number in range(1, LAST_PAGE_NUMBER + 1):
@@ -370,7 +391,13 @@ def main():
 
     releases_df = pd.DataFrame()
     for extension_identifier in extension_identifiers:
-        # TODO: Check if the latest release has already been fetched and if it has continue to the next extension
+        old_latest_release_version = get_old_latest_release_version(connection, extension_identifier)
+        new_latest_release_version = get_new_latest_release_version(extensions_df, extension_identifier)
+
+        if old_latest_release_version == new_latest_release_version:
+            logging.info(f"skipping fetching the releases for {extension_identifier} since they are already retrieved")
+            continue
+
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
