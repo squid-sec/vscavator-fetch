@@ -1,15 +1,18 @@
-import logging.config
-import requests
+"""
+TODO
+"""
+
 import os
-from dateutil import parser
 import logging
+import logging.config
+import boto3
+import requests
+from dateutil import parser
 from packaging import version
 import pandas as pd
-from dotenv import load_dotenv
-import os
 import psycopg2
 from psycopg2.extras import execute_values
-import boto3
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -18,11 +21,17 @@ load_dotenv()
 s3 = boto3.client("s3")
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-DOWNLOAD_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
+DOWNLOAD_URL = (
+    "https://marketplace.visualstudio.com/_apis/public/gallery/"
+    "publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
+)
 HEADERS = {
     "Content-Type": "application/json",
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
+REQUESTS_TIMEOUT = 10
+EXTENSIONS_PAGE_SIZE = 2
+EXTENSIONS_LAST_PAGE_NUMBER = 3
 
 CREATE_EXTENSIONS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS extensions (
@@ -62,8 +71,14 @@ CREATE_RELEASES_TABLE_QUERY = """
     );
 """
 
+def get_extensions(
+        page_number: int,
+        page_size: int
+    ) -> list:
+    """
+    TODO
+    """
 
-def get_extensions(page_number, page_size):
     payload = {
         'filters': [
             {
@@ -83,63 +98,127 @@ def get_extensions(page_number, page_size):
         ],
     }
 
-    try:
-        response = requests.post(EXTENSIONS_URL, headers=HEADERS, json=payload)
+    response = requests.post(
+        EXTENSIONS_URL, headers=HEADERS, json=payload, timeout=REQUESTS_TIMEOUT
+    )
+    if response.status_code == 200:
         results = response.json()["results"][0]["extensions"]
-        logging.info(f"Fetched extensions from page number {str(page_number)} with page size {str(page_size)}")
+        logging.info(
+            "Fetched extensions from page number %d with page size %d",
+            page_number, page_size
+        )
         return results
-    except Exception as e:
-        logging.error(f"Error fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
-        return []
 
-def get_all_extensions(page_size=2, last_page_number=1):
+    logging.error(
+        "Error fetching extensions from page number %d with page size %d: status code %d",
+        page_number, page_size, response.status_code
+    )
+    return []
+
+def get_all_extensions(
+        page_size: int = EXTENSIONS_PAGE_SIZE,
+        last_page_number: int = EXTENSIONS_LAST_PAGE_NUMBER
+    ) -> list:
+    """
+    TODO
+    """
+
     all_extensions = []
     for page_number in range(1, last_page_number + 1):
         extensions = get_extensions(page_number, page_size)
         all_extensions.extend(extensions)
     return all_extensions
 
-def upload_extension_to_s3(connection, extension_id, publisher, name, version):
-    url = DOWNLOAD_URL.format(publisher=publisher, name=name, version=version)
+def upload_extension_to_s3(
+        connection: psycopg2.extensions.connection,
+        extension_id: str,
+        publisher_name: str,
+        extension_name: str,
+        extension_version: str
+    ) -> None:
+    """
+    TODO
+    """
 
-    response = requests.get(url, stream=True)
+    url = DOWNLOAD_URL.format(
+        publisher=publisher_name, name=extension_name, version=extension_version
+    )
+
+    response = requests.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
     if response.status_code == 200:
-        s3_key = f"extensions/{publisher}/{name}/{version}.vsix"
+        s3_key = f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
         try:
             s3.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
-            logging.info(f"Uploaded extension to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
+            logging.info(
+                "Uploaded extension to S3: s3://%s/%s",
+                os.getenv("S3_BUCKET_NAME"), s3_key
+            )
 
-            try:
-                update_query = f"""
-                    UPDATE releases
-                    SET uploaded_to_s3 = TRUE
-                    WHERE extension_id = '{extension_id}' AND version = '{version}';
-                """
-                cursor = connection.cursor()
-                cursor.execute(update_query)
+            update_query = f"""
+                UPDATE releases
+                SET uploaded_to_s3 = TRUE
+                WHERE extension_id = '{extension_id}' AND version = '{extension_version}';
+            """
+            cursor = connection.cursor()
+            cursor.execute(update_query)
+            if cursor.rowcount > 0:
                 connection.commit()
-                logging.info(f"Updated uploaded_to_s3 status to TRUE for version {version} of extension {name}")
-            except Exception as e:
-                logging.error(f"Failed to update uploaded_to_s3 status to True for version {version} of extension {name}")
-        except Exception as e:
-            logging.error(f"Error uploading extension {name} version {version} by publisher {publisher} to S3: {e}")
-    else:
-        logging.error(f"Error downloading extension {name} version {version} by publisher {publisher} from marketplace: status code {str(response.status_code)}")
+                logging.info(
+                    "Updated uploaded_to_s3 status to TRUE for version %s of extension %s",
+                    extension_version, extension_name
+                )
+            else:
+                logging.error(
+                    "Failed to update uploaded_to_s3 status to True for version %s of extension %s",
+                    extension_version, extension_name
+                )
 
-def upload_all_extensions_to_s3(connection, combined_df):
+            cursor.close()
+        except Exception as e: # pylint: disable=broad-exception-caught
+            logging.error(
+                "Error uploading extension %s version %s by publisher %s to S3: %s",
+                extension_name, extension_version, publisher_name, e
+            )
+    else:
+        logging.error(
+            "Error downloading extension %s version %s by publisher %s from marketplace: "
+            "status code %d",
+            extension_name, version, publisher_name, response.status_code
+        )
+
+def upload_all_extensions_to_s3(
+        connection: psycopg2.extensions.connection,
+        combined_df: pd.DataFrame
+    ) -> None:
+    """
+    TODO
+    """
+
     for _, row in combined_df.iterrows():
         publisher_name = row["publisher_name"]
         extension_name = row["extension_name"]
         extension_id = row["extension_id"]
-        version = row["version"]
+        extension_version = row["version"]
 
-        if is_uploaded_to_s3(connection, extension_id, version):
-            logging.info(f"Skipped uploading version {version} of extension {extension_name} to S3 since it has already been uploaded")
+        if is_uploaded_to_s3(connection, extension_id, extension_version):
+            logging.info(
+                "Skipped uploading version %s of extension %s to S3 since it has already been "
+                "uploaded",
+                extension_version, extension_name
+            )
             continue
 
-        upload_extension_to_s3(connection, extension_id, publisher_name, extension_name, version)
+        upload_extension_to_s3(
+            connection, extension_id, publisher_name, extension_name, extension_version
+        )
 
-def get_extension_releases(extension_identifier):
+def get_extension_releases(
+        extension_identifier: str
+    ) -> list:
+    """
+    TODO
+    """
+
     json_data = {
         'assetTypes': None,
         'filters': [
@@ -157,106 +236,145 @@ def get_extension_releases(extension_identifier):
         'flags': 2151,
     }
 
-    try:
-        response = requests.post(EXTENSIONS_URL, json=json_data, headers=HEADERS)
+    response = requests.post(
+        EXTENSIONS_URL, json=json_data, headers=HEADERS, timeout=REQUESTS_TIMEOUT
+    )
+    if response.status_code == 200:
         results = response.json()["results"][0]["extensions"][0]
-        logging.info(f"Fetched extension releases for extension {extension_identifier}")
+        logging.info(
+            "Fetched extension releases for extension %s",
+            extension_identifier
+        )
         return results
-    except Exception as e:
-        logging.error(f"Error fetching extension releases for extension {extension_identifier}: {str(e)}")
-        return []
 
-def extract_publisher_metadata(extensions):
+    logging.error(
+        "Error fetching extension releases for extension %s: %d",
+        extension_identifier, response.status_code
+    )
+    return []
+
+def extract_publisher_metadata(
+        extensions: list
+    ) -> pd.DataFrame:
+    """
+    TODO
+    """
+
     publishers_metadata = []
 
     for extension in extensions:
         publisher_metadata = extension["publisher"]
-
-        publisher_id = publisher_metadata["publisherId"]
-        publisher_name = publisher_metadata["publisherName"]
-        display_name = publisher_metadata["displayName"]
-        flags = publisher_metadata["flags"].split(", ")
-        domain = publisher_metadata["domain"]
-        is_domain_verified = publisher_metadata["isDomainVerified"]
-
         publishers_metadata.append({
-            "publisher_id": publisher_id,
-            "publisher_name": publisher_name,
-            "display_name": display_name,
-            "flags": flags,
-            "domain": domain,
-            "is_domain_verified": is_domain_verified
+            "publisher_id": publisher_metadata["publisherId"],
+            "publisher_name": publisher_metadata["publisherName"],
+            "display_name": publisher_metadata["displayName"],
+            "flags": publisher_metadata["flags"].split(", "),
+            "domain": publisher_metadata["domain"],
+            "is_domain_verified": publisher_metadata["isDomainVerified"]
         })
 
     return pd.DataFrame(publishers_metadata)
 
-def extract_extension_metadata(extensions):
+def get_latest_version(
+        versions: list
+    ) -> str:
+    """
+    TODO
+    """
+
+    return max(versions, key=lambda x: version.parse(x["version"]))["version"]
+
+def extract_extension_metadata(
+        extensions: list
+    ) -> pd.DataFrame:
+    """
+    TODO
+    """
+
     extensions_metadata = []
 
     for extension in extensions:
-        extension_id = extension["extensionId"]
         extension_name = extension["extensionName"]
-        display_name = extension["displayName"]
-        flags = extension["flags"].split(", ")
-        last_updated = parser.isoparse(extension["lastUpdated"])
-        published_date = parser.isoparse(extension["publishedDate"])
-        release_date = parser.isoparse(extension["releaseDate"])
-        short_description = extension["shortDescription"]
-        publisher_id = extension["publisher"]["publisherId"]
         publisher_name = extension["publisher"]["publisherName"]
-        extension_identifier = f"{publisher_name}.{extension_name}"
-
-        get_latest_version = lambda v: max(v, key=lambda x: version.parse(x["version"]))["version"]
-        versions = extension["versions"]
-        latest_release_version = get_latest_version(versions)
+        extension_identifier = publisher_name + "." + extension_name
 
         extensions_metadata.append({
-            "extension_id": extension_id,
-            "extension_name": extension_name,
-            "display_name": display_name,
-            "flags": flags,
-            "last_updated": last_updated,
-            "published_date": published_date,
-            "release_date": release_date,
-            "short_description": short_description,
-            "latest_release_version": latest_release_version,
-            "publisher_id": publisher_id,
+            "extension_id": extension["extensionId"],
+            "extension_name": extension["extensionName"],
+            "display_name": extension["displayName"],
+            "flags": extension["flags"].split(", "),
+            "last_updated": parser.isoparse(extension["lastUpdated"]),
+            "published_date": parser.isoparse(extension["publishedDate"]),
+            "release_date": parser.isoparse(extension["releaseDate"]),
+            "short_description": extension["shortDescription"],
+            "latest_release_version": get_latest_version(extension["versions"]),
+            "publisher_id": extension["publisher"]["publisherId"],
             "extension_identifier": extension_identifier
         })
 
     return pd.DataFrame(extensions_metadata)
 
-def extract_release_metadata(extension_releases):
+def extract_release_metadata(
+        extension_releases: list
+    ) -> pd.DataFrame:
+    """
+    TODO
+    """
+
     releases = []
 
     extension_id = extension_releases["extensionId"]
     extension_versions = extension_releases["versions"]
-    for extension_version in extension_versions:
-        version = extension_version["version"]
-        release_id = extension_id + "-" + version
-        flags = extension_version["flags"].split(", ")
-        last_updated = parser.isoparse(extension_version["lastUpdated"])
+    for extension in extension_versions:
+        extension_version = extension["version"]
+        release_id = extension_id + "-" + extension_version
 
         releases.append({
             "release_id": release_id,
-            "version": version,
-            "flags": flags,
-            "last_updated": last_updated,
+            "version": extension_version,
+            "flags": extension["flags"].split(", "),
+            "last_updated": parser.isoparse(extension["lastUpdated"]),
             "extension_id": extension_id,
         })
 
     return pd.DataFrame(releases)
 
-def upsert_data(connection, table_name, upsert_data_query, data):
-    try:
-        with connection.cursor() as cursor:
-            execute_values(cursor, upsert_data_query, data)
-            connection.commit()
-            logging.info(f"Upserted {len(data)} rows of {table_name} data to the database")
-    except Exception as e:
-        logging.error(f"Error upserting {len(data)} rows of {table_name} data to the database: {str(e)}")
+def upsert_data(
+        connection: psycopg2.extensions.connection,
+        table_name: str,
+        upsert_data_query: str,
+        data: list
+    ) -> None:
+    """
+    TODO
+    """
 
-def upsert_extensions(connection, extensions_df, batch_size=5000):
+    cursor = connection.cursor()
+    execute_values(cursor, upsert_data_query, data)
+
+    if cursor.rowcount > 0:
+        connection.commit()
+        logging.info(
+            "Upserted %d rows of %s data to the database",
+            len(data), table_name
+        )
+    else:
+        logging.error(
+            "Error upserting %d rows of %s data to the database: {str(e)}",
+            len(data), table_name
+        )
+
+    cursor.close()
+
+def upsert_extensions(
+        connection: psycopg2.extensions.connection,
+        extensions_df: pd.DataFrame,
+        batch_size: int = 5000
+    ) -> None:
+    """
+    TODO
+    """
+
     upsert_query = """
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, short_description, latest_release_version, publisher_id, extension_identifier
@@ -293,9 +411,20 @@ def upsert_extensions(connection, extensions_df, batch_size=5000):
     for i in range(0, len(values), batch_size):
         batch = values[i:i + batch_size]
         upsert_data(connection, "extensions", upsert_query, batch)
-        logging.info(f"Upserted extensions batch {i // batch_size + 1} of {len(batch)} rows")
+        logging.info(
+            "Upserted extensions batch %d of %d rows",
+            i // batch_size + 1, len(batch)
+        )
 
-def upsert_publishers(connection, publishers_df, batch_size=5000):
+def upsert_publishers(
+        connection: psycopg2.extensions.connection,
+        publishers_df: pd.DataFrame,
+        batch_size: int = 5000
+    ) -> None:
+    """
+    TODO
+    """
+
     upsert_query = """
         INSERT INTO publishers (
             publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
@@ -321,10 +450,21 @@ def upsert_publishers(connection, publishers_df, batch_size=5000):
 
     for i in range(0, len(values), batch_size):
         batch = values[i:i + batch_size]
-        upsert_data(connection, "publishers", upsert_query, values)
-        logging.info(f"Upserted publishers batch {i // batch_size + 1} of {len(batch)} rows")
+        upsert_data(connection, "publishers", upsert_query, batch)
+        logging.info(
+            "Upserted publishers batch %d of %d rows",
+            i // batch_size + 1, len(batch)
+        )
 
-def upsert_releases(connection, releases_df, batch_size=5000):
+def upsert_releases(
+        connection: psycopg2.extensions.connection,
+        releases_df: pd.DataFrame,
+        batch_size: int = 5000
+    ) -> None:
+    """
+    TODO
+    """
+
     upsert_query = """
         INSERT INTO releases (
             release_id, version, extension_id, flags, last_updated
@@ -349,48 +489,79 @@ def upsert_releases(connection, releases_df, batch_size=5000):
     for i in range(0, len(values), batch_size):
         batch = values[i:i + batch_size]
         upsert_data(connection, "releases", upsert_query, values)
-        logging.info(f"Upserted releases batch {i // batch_size + 1} of {len(batch)} rows")
+        logging.info(
+            "Upserted releases batch %d of %d rows",
+            i // batch_size + 1, len(batch)
+        )
 
-def create_table(connection, table_name, create_table_query):
+def create_table(
+        connection: psycopg2.extensions.connection,
+        table_name: str,
+        create_table_query: str
+    ) -> None:
+    """
+    TODO
+    """
+
     if connection is None:
-        logging.error(f"No database connection to create table {table_name}")
+        logging.error("Failed to create %s table: no database connection", table_name)
         return
 
     cursor = connection.cursor()
+    cursor.execute(create_table_query)
 
-    try:
-        cursor.execute(create_table_query)
-        logging.info(f"Executed create {table_name} table query")
-        connection.commit()
-        logging.info(f"Commited create {table_name} table query")
-    except Exception as e:
-        connection.rollback()
-        logging.error(f"Rolled back create {table_name} table query: {str(e)}")
-    finally:
-        cursor.close()
-        logging.info(f"Closed create {table_name} table query cursor")
+    connection.commit()
+    logging.info(
+        "Created %s table",
+        table_name
+    )
+    cursor.close()
 
-def connect_to_database():
-    try:
-        connection = psycopg2.connect(
-            dbname=os.getenv("PG_DATABASE"),
-            user=os.getenv("PG_USER"),
-            password=os.getenv("PG_PASSWORD"),
-            host=os.getenv("PG_HOST"),
-            port=os.getenv("PG_PORT")
+def connect_to_database() -> psycopg2.extensions.connection:
+    """
+    TODO
+    """
+
+    connection = psycopg2.connect(
+        dbname=os.getenv("PG_DATABASE"),
+        user=os.getenv("PG_USER"),
+        password=os.getenv("PG_PASSWORD"),
+        host=os.getenv("PG_HOST"),
+        port=os.getenv("PG_PORT")
+    )
+
+    if connection:
+        logging.info(
+            "Connected to database %s on host %s:%s",
+            os.getenv("PG_DATABASE"), os.getenv("PG_HOST"), os.getenv("PG_PORT")
         )
-        logging.info(f"Connected to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}")
         return connection
-    except Exception as e:
-        logging.error(f"Failed to connect to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}: {str(e)}")
-        return None
 
-def create_tables(connection):
+    logging.critical(
+        "Failed to connect to database %s on host %s",
+        os.getenv("PG_DATABASE"), os.getenv("PG_HOST")
+    )
+    return None
+
+def create_all_tables(
+        connection: psycopg2.extensions.connection
+    ) -> None:
+    """
+    TODO
+    """
+
     create_table(connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
     create_table(connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(connection, "releases", CREATE_RELEASES_TABLE_QUERY)
 
-def get_old_latest_release_version(connection, extension_identifier):
+def get_old_latest_release_version(
+        connection: psycopg2.extensions.connection,
+        extension_identifier: str
+    ) -> str:
+    """
+    TODO
+    """
+
     query = f"""
         SELECT latest_release_version
         FROM extensions
@@ -398,77 +569,141 @@ def get_old_latest_release_version(connection, extension_identifier):
     """
 
     cursor = connection.cursor()
-    try:
-        cursor.execute(query)
-        logging.info(f"Executed query to fetch latest release version from the extensions table for extension {extension_identifier}")
+    cursor.execute(query)
+
+    if cursor.rowcount > 0:
         result = cursor.fetchone()
-        logging.info(f"Fetched latest release version from the extensions table for extension {extension_identifier}")
-    except Exception as e:
-        result = None
-        logging.error(f"Failed to fetch latest release version from the extensions table for extension {extension_identifier}: {str(e)}")
+        logging.info(
+            "Fetched latest release version from the extensions table for extension %s",
+            extension_identifier
+        )
+        cursor.close()
+        return result[0]
 
-    return result[0] if result else None
+    logging.info(
+        "No latest release version from the extensions table for extension %s was found",
+        extension_identifier
+    )
+    cursor.close()
+    return None
 
-def get_new_latest_release_version(df, extension_identifier):
+def get_new_latest_release_version(
+        df: pd.DataFrame,
+        extension_identifier: str
+    ) -> str:
+    """
+    TODO
+    """
+
     latest_release_version = df.loc[
         df["extension_identifier"] == extension_identifier, "latest_release_version"
     ]
 
-    if latest_release_version.empty:
-        return None
-    else:
+    if not latest_release_version.empty:
         return latest_release_version.iloc[-1]
 
-def is_uploaded_to_s3(connection, extension_id, version):
+    return None
+
+def is_uploaded_to_s3(
+        connection: psycopg2.extensions.connection,
+        extension_id: str,
+        extension_version: str
+    ) -> bool:
+    """
+    TODO
+    """
+
     query = f"""
         SELECT uploaded_to_s3
         FROM releases
-        WHERE extension_id = '{extension_id}' AND version = '{version}';
+        WHERE extension_id = '{extension_id}' AND version = '{extension_version}';
     """
 
     cursor = connection.cursor()
-    try:
-        cursor.execute(query)
-        logging.info(f"Executed query to check if version {version} of extension {extension_id} is uploaded to S3")
+    cursor.execute(query)
+    if cursor.rowcount > 0:
         result = cursor.fetchone()
-        logging.info(f"Fetched upload status for version {version} of extension {extension_id}")
-    except Exception as e:
-        result = None
-        logging.error(f"Failed to fetch upload status for version {version} of extension {extension_id}: {str(e)}")
+        logging.info(
+            "Fetched upload status for version %s of extension %s",
+            extension_version, extension_id
+        )
+        cursor.close()
+        return result[0]
 
-    return result[0] if result else None
+    logging.info(
+        "No S3 upload status for version %s of extension %s was found",
+        extension_version, extension_id
+    )
+    cursor.close()
+    return False
 
-def main():
-    connection = connect_to_database()
-    if connection is None:
-        return
-    create_tables(connection)
+def combine_dataframes(
+        extensions_df: pd.DataFrame,
+        publishers_df: pd.DataFrame,
+        releases_df: pd.DataFrame
+    ) -> pd.DataFrame:
+    """
+    TODO
+    """
 
-    extensions = get_all_extensions()
-    extensions_df = extract_extension_metadata(extensions)
-    publishers_df = extract_publisher_metadata(extensions)
+    releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
+    combined_df = releases_extensions_df.merge(publishers_df, on="publisher_id", how="inner")
+    return combined_df
+
+def get_all_releases(
+        connection: psycopg2.extensions.connection,
+        extensions_df: pd.DataFrame
+    )-> pd.DataFrame:
+    """
+    TODO
+    """
+
     extension_identifiers = extensions_df["extension_identifier"].tolist()
+    releases_df = pd.DataFrame(
+        columns=["release_id", "version", "extension_id", "flags", "last_updated"]
+    )
 
-    releases_df = pd.DataFrame(columns=["release_id", "version", "extension_id", "flags", "last_updated"])
     for extension_identifier in extension_identifiers:
-        old_latest_release_version = get_old_latest_release_version(connection, extension_identifier)
-        new_latest_release_version = get_new_latest_release_version(extensions_df, extension_identifier)
+        old_latest_release_version = get_old_latest_release_version(
+            connection, extension_identifier
+        )
+        new_latest_release_version = get_new_latest_release_version(
+            extensions_df, extension_identifier
+        )
 
         if old_latest_release_version == new_latest_release_version:
-            logging.info(f"Skipped fetching the releases for {extension_identifier} since they have already been retrieved")
+            logging.info(
+                "Skipped fetching the releases for %s since they have already been retrieved",
+                extension_identifier
+            )
             continue
 
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
 
-    releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
-    combined_df = releases_extensions_df.merge(publishers_df, on="publisher_id", how="inner")
-    upload_all_extensions_to_s3(connection, combined_df)
+    return releases_df
+
+def main() -> None:
+    """
+    TODO
+    """
+
+    connection = connect_to_database()
+    create_all_tables(connection)
+
+    extensions = get_all_extensions()
+    extensions_df = extract_extension_metadata(extensions)
+    publishers_df = extract_publisher_metadata(extensions)
+
+    releases_df = get_all_releases(connection, extensions_df)
 
     upsert_publishers(connection, publishers_df)
     upsert_extensions(connection, extensions_df)
     upsert_releases(connection, releases_df)
+
+    combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
+    upload_all_extensions_to_s3(connection, combined_df)
 
     connection.close()
 
