@@ -653,7 +653,7 @@ def combine_dataframes(
 def get_all_releases(
         connection: psycopg2.extensions.connection,
         extensions_df: pd.DataFrame
-    )-> pd.DataFrame:
+    ) -> pd.DataFrame:
     """
     TODO
     """
