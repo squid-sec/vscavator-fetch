@@ -23,8 +23,6 @@ HEADERS = {
     "Content-Type": "application/json",
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
-LAST_PAGE_NUMBER = 1
-PAGE_SIZE = 2
 
 CREATE_EXTENSIONS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS extensions (
@@ -94,10 +92,10 @@ def get_extensions(page_number, page_size):
         logging.error(f"Error fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
         return []
 
-def get_all_extensions():
+def get_all_extensions(page_size=2, last_page_number=1):
     all_extensions = []
-    for page_number in range(1, LAST_PAGE_NUMBER + 1):
-        extensions = get_extensions(page_number, PAGE_SIZE)
+    for page_number in range(1, last_page_number + 1):
+        extensions = get_extensions(page_number, page_size)
         all_extensions.extend(extensions)
     return all_extensions
 
@@ -258,7 +256,7 @@ def upsert_data(connection, table_name, upsert_data_query, data):
     except Exception as e:
         logging.error(f"Error upserting {len(data)} rows of {table_name} data to the database: {str(e)}")
 
-def upsert_extensions(connection, extensions_df):
+def upsert_extensions(connection, extensions_df, batch_size=5000):
     upsert_query = """
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, short_description, latest_release_version, publisher_id, extension_identifier
@@ -292,9 +290,12 @@ def upsert_extensions(connection, extensions_df):
         ) for _, row in extensions_df.iterrows()
     ]
 
-    upsert_data(connection, "extensions", upsert_query, values)
+    for i in range(0, len(values), batch_size):
+        batch = values[i:i + batch_size]
+        upsert_data(connection, "extensions", upsert_query, batch)
+        logging.info(f"Upserted extensions batch {i // batch_size + 1} of {len(batch)} rows")
 
-def upsert_publishers(connection, publishers_df):
+def upsert_publishers(connection, publishers_df, batch_size=5000):
     upsert_query = """
         INSERT INTO publishers (
             publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
@@ -318,9 +319,12 @@ def upsert_publishers(connection, publishers_df):
         ) for _, row in publishers_df.iterrows()
     ]
 
-    upsert_data(connection, "publishers", upsert_query, values)
+    for i in range(0, len(values), batch_size):
+        batch = values[i:i + batch_size]
+        upsert_data(connection, "publishers", upsert_query, values)
+        logging.info(f"Upserted publishers batch {i // batch_size + 1} of {len(batch)} rows")
 
-def upsert_releases(connection, releases_df):
+def upsert_releases(connection, releases_df, batch_size=5000):
     upsert_query = """
         INSERT INTO releases (
             release_id, version, extension_id, flags, last_updated
@@ -342,7 +346,10 @@ def upsert_releases(connection, releases_df):
         ) for _, row in releases_df.iterrows()
     ]
 
-    upsert_data(connection, "releases", upsert_query, values)
+    for i in range(0, len(values), batch_size):
+        batch = values[i:i + batch_size]
+        upsert_data(connection, "releases", upsert_query, values)
+        logging.info(f"Upserted releases batch {i // batch_size + 1} of {len(batch)} rows")
 
 def create_table(connection, table_name, create_table_query):
     if connection is None:
