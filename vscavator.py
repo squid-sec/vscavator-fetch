@@ -1,7 +1,6 @@
 import logging.config
 import requests
 import os
-import zipfile
 from dateutil import parser
 import logging
 from packaging import version
@@ -11,8 +10,6 @@ import os
 import psycopg2
 from psycopg2.extras import execute_values
 import boto3
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
-
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -91,7 +88,7 @@ def get_extensions(page_number, page_size):
         logging.info(f"fetched extensions from page number {str(page_number)} with page size {str(page_size)}")
         return results
     except Exception as e:
-        logging.error(f"error while fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
+        logging.error(f"error fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
         return []
 
 def upload_extension_to_s3(publisher, name, version):
@@ -102,20 +99,11 @@ def upload_extension_to_s3(publisher, name, version):
         s3_key = f"extensions/{publisher}/{name}/{version}.vsix"
         try:
             s3.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
-            print(f"Uploaded to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
-        except NoCredentialsError:
-            print("AWS credentials not found.")
-        except PartialCredentialsError:
-            print("Incomplete AWS credentials provided.")
+            logging.info(f"uploaded to extnesion to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.error(f"error uploading extension {name} version {version} by publisher {publisher} to S3: {e}")
     else:
-        print(f"Failed to download {publisher}/{name}@{version}")
-
-def unzip_file(file, extension_id):
-    extract_to_folder = f"extensions/unzipped/{extension_id}"
-    with zipfile.ZipFile(file, 'r') as zip_ref:
-        zip_ref.extractall(extract_to_folder)
+        logging.error(f"error downloading extension {name} version {version} by publisher {publisher} from marketplace: status code {str(response.status_code)}")
 
 def get_extension_releases(extension_identifier):
     json_data = {
@@ -141,7 +129,7 @@ def get_extension_releases(extension_identifier):
         logging.info(f"fetched extension releases for extension {extension_identifier}")
         return results
     except Exception as e:
-        logging.error(f"error while fetching extension releases for extension {extension_identifier}: {str(e)}")
+        logging.error(f"error fetching extension releases for extension {extension_identifier}: {str(e)}")
         return []
 
 def extract_publisher_metadata(extensions):
@@ -230,9 +218,9 @@ def upsert_data(connection, table_name, upsert_data_query, data):
         with connection.cursor() as cursor:
             execute_values(cursor, upsert_data_query, data)
             connection.commit()
-            logging.info(f"Successfully upserted {table_name} data to the database.")
+            logging.info(f"upserted {len(data)} rows of {table_name} data to the database")
     except Exception as e:
-        logging.error(f"Error upserting {table_name} data to the database: {str(e)}")
+        logging.error(f"error upserting {len(data)} rows of {table_name} data to the database: {str(e)}")
 
 def upsert_extensions(connection, extensions_df):
     upsert_query = """
@@ -322,7 +310,7 @@ def upsert_releases(connection, releases_df):
 
 def create_table(connection, table_name, create_table_query):
     if connection is None:
-        logging.error("database connection to create table is none")
+        logging.error(f"no database connection to create table {table_name}")
         return
 
     cursor = connection.cursor()
@@ -367,8 +355,14 @@ def get_old_latest_release_version(connection, extension_identifier):
     """
 
     cursor = connection.cursor()
-    cursor.execute(query)
-    result = cursor.fetchone()
+    try:
+        cursor.execute(query)
+        logging.info(f"executed query to fetch latest release version from the extensions table for extension {extension_identifier}")
+        result = cursor.fetchone()
+        logging.info(f"fetched latest release version from the extensions table for extension {extension_identifier}")
+    except Exception as e:
+        result = None
+        logging.error(f"failed to fetch latest release version from the extensions table for extension {extension_identifier}: {str(e)}")
 
     return result[0] if result else None
 
@@ -398,13 +392,13 @@ def main():
 
     extension_identifiers = extensions_df["extension_identifier"].tolist()
 
-    releases_df = pd.DataFrame()
+    releases_df = pd.DataFrame(columns=["release_id", "version", "extension_id", "flags", "last_updated"])
     for extension_identifier in extension_identifiers:
         old_latest_release_version = get_old_latest_release_version(connection, extension_identifier)
         new_latest_release_version = get_new_latest_release_version(extensions_df, extension_identifier)
 
         if old_latest_release_version == new_latest_release_version:
-            logging.info(f"skipping fetching the releases for {extension_identifier} since they are already retrieved")
+            logging.info(f"skipped fetching the releases for {extension_identifier} since they have already been retrieved")
             continue
 
         extension_releases = get_extension_releases(extension_identifier)
