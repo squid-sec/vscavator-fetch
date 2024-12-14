@@ -38,7 +38,8 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         short_description VARCHAR(255) NOT NULL,
         latest_release_version VARCHAR(255) NOT NULL,
         publisher_id VARCHAR(255) NOT NULL,
-        extension_identifier VARCHAR(255) NOT NULL
+        extension_identifier VARCHAR(255) NOT NULL,
+        FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
 CREATE_PUBLISHERS_TABLE_QUERY = """
@@ -57,7 +58,9 @@ CREATE_RELEASES_TABLE_QUERY = """
         extension_id VARCHAR(255) NOT NULL,
         version VARCHAR(255) NOT NULL,
         last_updated DATE NOT NULL,
-        flags VARCHAR(255) ARRAY
+        flags VARCHAR(255) ARRAY,
+        uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
+        FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
 
@@ -85,13 +88,20 @@ def get_extensions(page_number, page_size):
     try:
         response = requests.post(EXTENSIONS_URL, headers=HEADERS, json=payload)
         results = response.json()["results"][0]["extensions"]
-        logging.info(f"fetched extensions from page number {str(page_number)} with page size {str(page_size)}")
+        logging.info(f"Fetched extensions from page number {str(page_number)} with page size {str(page_size)}")
         return results
     except Exception as e:
-        logging.error(f"error fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
+        logging.error(f"Error fetching extensions from page number {str(page_number)} with page size {str(page_size)}: {str(e)}")
         return []
 
-def upload_extension_to_s3(publisher, name, version):
+def get_all_extensions():
+    all_extensions = []
+    for page_number in range(1, LAST_PAGE_NUMBER + 1):
+        extensions = get_extensions(page_number, PAGE_SIZE)
+        all_extensions.extend(extensions)
+    return all_extensions
+
+def upload_extension_to_s3(connection, extension_id, publisher, name, version):
     url = DOWNLOAD_URL.format(publisher=publisher, name=name, version=version)
 
     response = requests.get(url, stream=True)
@@ -99,11 +109,37 @@ def upload_extension_to_s3(publisher, name, version):
         s3_key = f"extensions/{publisher}/{name}/{version}.vsix"
         try:
             s3.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
-            logging.info(f"uploaded to extnesion to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
+            logging.info(f"Uploaded extension to S3: s3://{os.getenv('S3_BUCKET_NAME')}/{s3_key}")
+
+            try:
+                update_query = f"""
+                    UPDATE releases
+                    SET uploaded_to_s3 = TRUE
+                    WHERE extension_id = '{extension_id}' AND version = '{version}';
+                """
+                cursor = connection.cursor()
+                cursor.execute(update_query)
+                connection.commit()
+                logging.info(f"Updated uploaded_to_s3 status to TRUE for version {version} of extension {name}")
+            except Exception as e:
+                logging.error(f"Failed to update uploaded_to_s3 status to True for version {version} of extension {name}")
         except Exception as e:
-            logging.error(f"error uploading extension {name} version {version} by publisher {publisher} to S3: {e}")
+            logging.error(f"Error uploading extension {name} version {version} by publisher {publisher} to S3: {e}")
     else:
-        logging.error(f"error downloading extension {name} version {version} by publisher {publisher} from marketplace: status code {str(response.status_code)}")
+        logging.error(f"Error downloading extension {name} version {version} by publisher {publisher} from marketplace: status code {str(response.status_code)}")
+
+def upload_all_extensions_to_s3(connection, combined_df):
+    for _, row in combined_df.iterrows():
+        publisher_name = row["publisher_name"]
+        extension_name = row["extension_name"]
+        extension_id = row["extension_id"]
+        version = row["version"]
+
+        if is_uploaded_to_s3(connection, extension_id, version):
+            logging.info(f"Skipped uploading version {version} of extension {extension_name} to S3 since it has already been uploaded")
+            continue
+
+        upload_extension_to_s3(connection, extension_id, publisher_name, extension_name, version)
 
 def get_extension_releases(extension_identifier):
     json_data = {
@@ -126,10 +162,10 @@ def get_extension_releases(extension_identifier):
     try:
         response = requests.post(EXTENSIONS_URL, json=json_data, headers=HEADERS)
         results = response.json()["results"][0]["extensions"][0]
-        logging.info(f"fetched extension releases for extension {extension_identifier}")
+        logging.info(f"Fetched extension releases for extension {extension_identifier}")
         return results
     except Exception as e:
-        logging.error(f"error fetching extension releases for extension {extension_identifier}: {str(e)}")
+        logging.error(f"Error fetching extension releases for extension {extension_identifier}: {str(e)}")
         return []
 
 def extract_publisher_metadata(extensions):
@@ -208,7 +244,7 @@ def extract_release_metadata(extension_releases):
             "version": version,
             "flags": flags,
             "last_updated": last_updated,
-            "extension_id": extension_id
+            "extension_id": extension_id,
         })
 
     return pd.DataFrame(releases)
@@ -218,9 +254,9 @@ def upsert_data(connection, table_name, upsert_data_query, data):
         with connection.cursor() as cursor:
             execute_values(cursor, upsert_data_query, data)
             connection.commit()
-            logging.info(f"upserted {len(data)} rows of {table_name} data to the database")
+            logging.info(f"Upserted {len(data)} rows of {table_name} data to the database")
     except Exception as e:
-        logging.error(f"error upserting {len(data)} rows of {table_name} data to the database: {str(e)}")
+        logging.error(f"Error upserting {len(data)} rows of {table_name} data to the database: {str(e)}")
 
 def upsert_extensions(connection, extensions_df):
     upsert_query = """
@@ -310,22 +346,22 @@ def upsert_releases(connection, releases_df):
 
 def create_table(connection, table_name, create_table_query):
     if connection is None:
-        logging.error(f"no database connection to create table {table_name}")
+        logging.error(f"No database connection to create table {table_name}")
         return
 
     cursor = connection.cursor()
 
     try:
         cursor.execute(create_table_query)
-        logging.info(f"executed create {table_name} table query")
+        logging.info(f"Executed create {table_name} table query")
         connection.commit()
-        logging.info(f"commited create {table_name} table query")
+        logging.info(f"Commited create {table_name} table query")
     except Exception as e:
         connection.rollback()
-        logging.error(f"rolled back create {table_name} table query: {str(e)}")
+        logging.error(f"Rolled back create {table_name} table query: {str(e)}")
     finally:
         cursor.close()
-        logging.info(f"closed create {table_name} table query cursor")
+        logging.info(f"Closed create {table_name} table query cursor")
 
 def connect_to_database():
     try:
@@ -336,15 +372,15 @@ def connect_to_database():
             host=os.getenv("PG_HOST"),
             port=os.getenv("PG_PORT")
         )
-        logging.info(f"connected to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}")
+        logging.info(f"Connected to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}")
         return connection
     except Exception as e:
-        logging.error(f"failed to connect to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}: {str(e)}")
+        logging.error(f"Failed to connect to database {os.getenv('PG_DATABASE')} on host {os.getenv('PG_HOST')}: {str(e)}")
         return None
-    
+
 def create_tables(connection):
-    create_table(connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
+    create_table(connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(connection, "releases", CREATE_RELEASES_TABLE_QUERY)
 
 def get_old_latest_release_version(connection, extension_identifier):
@@ -357,12 +393,12 @@ def get_old_latest_release_version(connection, extension_identifier):
     cursor = connection.cursor()
     try:
         cursor.execute(query)
-        logging.info(f"executed query to fetch latest release version from the extensions table for extension {extension_identifier}")
+        logging.info(f"Executed query to fetch latest release version from the extensions table for extension {extension_identifier}")
         result = cursor.fetchone()
-        logging.info(f"fetched latest release version from the extensions table for extension {extension_identifier}")
+        logging.info(f"Fetched latest release version from the extensions table for extension {extension_identifier}")
     except Exception as e:
         result = None
-        logging.error(f"failed to fetch latest release version from the extensions table for extension {extension_identifier}: {str(e)}")
+        logging.error(f"Failed to fetch latest release version from the extensions table for extension {extension_identifier}: {str(e)}")
 
     return result[0] if result else None
 
@@ -376,20 +412,34 @@ def get_new_latest_release_version(df, extension_identifier):
     else:
         return latest_release_version.iloc[-1]
 
+def is_uploaded_to_s3(connection, extension_id, version):
+    query = f"""
+        SELECT uploaded_to_s3
+        FROM releases
+        WHERE extension_id = '{extension_id}' AND version = '{version}';
+    """
+
+    cursor = connection.cursor()
+    try:
+        cursor.execute(query)
+        logging.info(f"Executed query to check if version {version} of extension {extension_id} is uploaded to S3")
+        result = cursor.fetchone()
+        logging.info(f"Fetched upload status for version {version} of extension {extension_id}")
+    except Exception as e:
+        result = None
+        logging.error(f"Failed to fetch upload status for version {version} of extension {extension_id}: {str(e)}")
+
+    return result[0] if result else None
+
 def main():
     connection = connect_to_database()
     if connection is None:
         return
     create_tables(connection)
 
-    all_extensions = []
-    for page_number in range(1, LAST_PAGE_NUMBER + 1):
-        extensions = get_extensions(page_number, PAGE_SIZE)
-        all_extensions.extend(extensions)
-
-    extensions_df = extract_extension_metadata(all_extensions)
-    publishers_df = extract_publisher_metadata(all_extensions)
-
+    extensions = get_all_extensions()
+    extensions_df = extract_extension_metadata(extensions)
+    publishers_df = extract_publisher_metadata(extensions)
     extension_identifiers = extensions_df["extension_identifier"].tolist()
 
     releases_df = pd.DataFrame(columns=["release_id", "version", "extension_id", "flags", "last_updated"])
@@ -398,26 +448,22 @@ def main():
         new_latest_release_version = get_new_latest_release_version(extensions_df, extension_identifier)
 
         if old_latest_release_version == new_latest_release_version:
-            logging.info(f"skipped fetching the releases for {extension_identifier} since they have already been retrieved")
+            logging.info(f"Skipped fetching the releases for {extension_identifier} since they have already been retrieved")
             continue
 
         extension_releases = get_extension_releases(extension_identifier)
         extension_releases_df = extract_release_metadata(extension_releases)
         releases_df = pd.concat([releases_df, extension_releases_df], ignore_index=True)
 
-
     releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
     combined_df = releases_extensions_df.merge(publishers_df, on="publisher_id", how="inner")
+    upload_all_extensions_to_s3(connection, combined_df)
 
-    for _, row in combined_df.iterrows():
-        publisher_name = row["publisher_name"]
-        extension_name = row["extension_name"]
-        version = row["version"]
-        upload_extension_to_s3(publisher_name, extension_name, version)
-
-    upsert_extensions(connection, extensions_df)
     upsert_publishers(connection, publishers_df)
+    upsert_extensions(connection, extensions_df)
     upsert_releases(connection, releases_df)
+
+    connection.close()
 
 if __name__ == "__main__":
     main()
