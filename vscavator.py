@@ -14,8 +14,10 @@ import psycopg2
 from dotenv import load_dotenv
 
 from db import connect_to_database, create_all_tables, upsert_extensions, \
-    upsert_publishers, upsert_releases, get_old_latest_release_version
-from s3 import upload_all_extensions_to_s3
+    upsert_publishers, upsert_releases, get_old_latest_release_version, \
+    select_extensions, select_publishers, select_releases
+from s3 import upload_all_extensions_to_s3, get_all_object_keys
+from df import combine_dataframes, object_keys_to_dataframe, verified_uploaded_to_s3
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 HEADERS = {
@@ -23,7 +25,7 @@ HEADERS = {
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
 REQUESTS_TIMEOUT = 10
-EXTENSIONS_PAGE_SIZE = 2
+EXTENSIONS_PAGE_SIZE = 3
 EXTENSIONS_LAST_PAGE_NUMBER = 3
 
 def get_extensions(
@@ -197,12 +199,16 @@ def extract_release_metadata(
     """
 
     releases = []
+    release_ids = set()
 
     extension_id = extension_releases["extensionId"]
     extension_versions = extension_releases["versions"]
     for extension in extension_versions:
         extension_version = extension["version"]
         release_id = extension_id + "-" + extension_version
+        if release_id in release_ids:
+            continue
+        release_ids.add(release_id)
 
         releases.append({
             "release_id": release_id,
@@ -230,19 +236,6 @@ def get_new_latest_release_version(
         return latest_release_version.iloc[-1]
 
     return ""
-
-def combine_dataframes(
-    extensions_df: pd.DataFrame,
-    publishers_df: pd.DataFrame,
-    releases_df: pd.DataFrame
-) -> pd.DataFrame:
-    """
-    TODO
-    """
-
-    releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
-    combined_df = releases_extensions_df.merge(publishers_df, on="publisher_id", how="inner")
-    return combined_df
 
 def get_all_releases(
     logger: Logger,
@@ -279,6 +272,41 @@ def get_all_releases(
 
     return releases_df
 
+def validate_data_consistency(
+    logger,
+    connection,
+    s3_client
+) -> None:
+    """
+    TODO
+    """
+
+    object_keys = get_all_object_keys(s3_client)
+    object_keys_df = object_keys_to_dataframe(object_keys)
+
+    extensions_df = select_extensions(logger, connection)
+    publishers_df = select_publishers(logger, connection)
+    releases_df = select_releases(logger, connection)
+
+    combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
+    for _, row in combined_df.iterrows():
+        publisher_name = row["publisher_name"]
+        extension_name = row["extension_name"]
+        extension_version = row["version"]
+
+        db_uploaded_to_s3 = row["uploaded_to_s3"]
+        s3_uploaded_to_s3 = verified_uploaded_to_s3(
+            object_keys_df, publisher_name, extension_name, extension_version
+        )
+
+        if db_uploaded_to_s3 != s3_uploaded_to_s3:
+            logger.error(
+                "Publisher %s, extension %s, version %s: "
+                "database state uploaded_to_s3: %s, while S3 state uploaded_to_s3: %s",
+                publisher_name, extension_name, extension_version, db_uploaded_to_s3,
+                s3_uploaded_to_s3
+            )
+
 def main() -> None:
     """
     TODO
@@ -303,10 +331,12 @@ def main() -> None:
 
     combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
 
-    s3 = boto3.client("s3")
-    upload_all_extensions_to_s3(vscavator_logger, connection, s3, combined_df)
-    s3.close()
+    s3_client = boto3.client("s3")
+    upload_all_extensions_to_s3(vscavator_logger, connection, s3_client, combined_df)
 
+    validate_data_consistency(vscavator_logger, connection, s3_client)
+
+    s3_client.close()
     connection.close()
 
 if __name__ == "__main__":

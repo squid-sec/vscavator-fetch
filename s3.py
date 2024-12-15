@@ -21,7 +21,7 @@ REQUESTS_TIMEOUT = 10
 def upload_extension_to_s3(
     logger: Logger,
     connection: psycopg2.extensions.connection,
-    s3: BaseClient,
+    s3_client: BaseClient,
     extension_id: str,
     publisher_name: str,
     extension_name: str,
@@ -39,7 +39,7 @@ def upload_extension_to_s3(
     if response.status_code == 200:
         s3_key = f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
         try:
-            s3.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
+            s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
             logger.info(
                 "Uploaded extension to S3: s3://%s/%s",
                 os.getenv("S3_BUCKET_NAME"), s3_key
@@ -80,7 +80,7 @@ def upload_extension_to_s3(
 def upload_all_extensions_to_s3(
     logger: Logger,
     connection: psycopg2.extensions.connection,
-    s3: BaseClient,
+    s3_client: BaseClient,
     combined_df: pd.DataFrame
 ) -> None:
     """
@@ -102,5 +102,20 @@ def upload_all_extensions_to_s3(
             continue
 
         upload_extension_to_s3(
-            logger, connection, s3, extension_id, publisher_name, extension_name, extension_version
+            logger, connection, s3_client, extension_id, publisher_name,
+            extension_name, extension_version
         )
+
+def get_all_object_keys(
+    s3_client: BaseClient
+) -> list:
+    """
+    TODO
+    """
+
+    paginator = s3_client.get_paginator('list_objects_v2')
+    return [
+        s3_object["Key"]
+        for page in paginator.paginate(Bucket=os.getenv("S3_BUCKET_NAME"))
+        for s3_object in page["Contents"]
+    ]

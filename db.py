@@ -162,7 +162,7 @@ def upsert_extensions(
             short_description = EXCLUDED.short_description,
             latest_release_version = EXCLUDED.latest_release_version,
             publisher_id = EXCLUDED.publisher_id,
-            extension_identifier = EXCLUDED.extension_identifier
+            extension_identifier = EXCLUDED.extension_identifier;
     """
 
     values = [
@@ -208,7 +208,7 @@ def upsert_publishers(
             display_name = EXCLUDED.display_name,
             flags = EXCLUDED.flags,
             domain = EXCLUDED.domain,
-            is_domain_verified = EXCLUDED.is_domain_verified
+            is_domain_verified = EXCLUDED.is_domain_verified;
     """
 
     values = [
@@ -248,7 +248,7 @@ def upsert_releases(
             version = EXCLUDED.version,
             extension_id = EXCLUDED.extension_id,
             flags = EXCLUDED.flags,
-            last_updated = EXCLUDED.last_updated
+            last_updated = EXCLUDED.last_updated;
     """
 
     values = [
@@ -268,6 +268,66 @@ def upsert_releases(
             "Upserted releases batch %d of %d rows",
             i // batch_size + 1, len(batch)
         )
+
+def select_extensions(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    TODO
+    """
+
+    query = """
+        SELECT *
+        FROM extensions;
+    """
+
+    chunks = []
+    for chunk in pd.read_sql_query(query, connection, chunksize=10000):
+        chunks.append(chunk)
+        logger.info("Processed chunk of extensions with %d rows", len(chunk))
+
+    return pd.concat(chunks, ignore_index=True)
+
+def select_publishers(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    TODO
+    """
+
+    query = """
+        SELECT *
+        FROM publishers;
+    """
+
+    chunks = []
+    for chunk in pd.read_sql_query(query, connection, chunksize=10000):
+        chunks.append(chunk)
+        logger.info("Processed chunk of publishers with %d rows", len(chunk))
+
+    return pd.concat(chunks, ignore_index=True)
+
+def select_releases(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    TODO
+    """
+
+    query = """
+        SELECT *
+        FROM releases;
+    """
+
+    chunks = []
+    for chunk in pd.read_sql_query(query, connection, chunksize=10000):
+        chunks.append(chunk)
+        logger.info("Processed chunk of releases with %d rows", len(chunk))
+
+    return pd.concat(chunks, ignore_index=True)
 
 def is_uploaded_to_s3(
     logger: Logger,
