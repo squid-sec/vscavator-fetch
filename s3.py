@@ -35,8 +35,8 @@ def upload_extension_to_s3(
         publisher=publisher_name, name=extension_name, version=extension_version
     )
 
-    response = requests.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
         s3_key = f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
         try:
             s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
@@ -70,11 +70,10 @@ def upload_extension_to_s3(
                 "Error uploading extension %s version %s by publisher %s to S3: %s",
                 extension_name, extension_version, publisher_name, e
             )
-    else:
+    except Exception as e: # pylint: disable=broad-exception-caught
         logger.error(
-            "Error downloading extension %s version %s by publisher %s from marketplace: "
-            "status code %d",
-            extension_name, version, publisher_name, response.status_code
+            "Error downloading extension %s version %s by publisher %s from marketplace: %s",
+            extension_name, version, publisher_name, response.status_code, e
         )
 
 def upload_all_extensions_to_s3(
@@ -87,10 +86,15 @@ def upload_all_extensions_to_s3(
     TODO
     """
 
+    unique_extensions = set()
     for _, row in combined_df.iterrows():
+        extension_id = row["extension_id"]
+        if extension_id in unique_extensions:
+            continue
+        unique_extensions.add(extension_id)
+
         publisher_name = row["publisher_name"]
         extension_name = row["extension_name"]
-        extension_id = row["extension_id"]
         extension_version = row["version"]
 
         if is_uploaded_to_s3(logger, connection, extension_id, extension_version):
