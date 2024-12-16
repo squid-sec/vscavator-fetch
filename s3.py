@@ -1,5 +1,5 @@
 """
-TODO
+s3.py contains S3 related functions
 """
 
 import os

@@ -1,5 +1,5 @@
 """
-TODO
+db.py contains database related functions
 """
 
 import os
