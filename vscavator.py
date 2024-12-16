@@ -2,6 +2,7 @@
 TODO
 """
 
+import time
 import logging
 import logging.config
 from logging import Logger
@@ -25,8 +26,9 @@ HEADERS = {
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
 REQUESTS_TIMEOUT = 10
-EXTENSIONS_PAGE_SIZE = 3
-EXTENSIONS_LAST_PAGE_NUMBER = 3
+EXTENSIONS_PAGE_SIZE = 30
+EXTENSIONS_LAST_PAGE_NUMBER = 30
+REQUESTS_SLEEP = 60
 
 def get_extensions(
     logger: Logger,
@@ -91,7 +93,7 @@ def get_all_extensions(
 def get_extension_releases(
     logger: Logger,
     extension_identifier: str
-) -> list:
+) -> dict:
     """
     TODO
     """
@@ -123,12 +125,19 @@ def get_extension_releases(
             extension_identifier
         )
         return results
+    elif response.status_code == 429:
+        logging.warning(
+            "Received 429 Too Many Requests error while fetching extension releases for %s... "
+            "sleeping for %d seconds",
+            extension_identifier, REQUESTS_SLEEP
+        )
+        time.sleep(REQUESTS_SLEEP)
 
     logger.error(
         "Error fetching extension releases for extension %s: %d",
         extension_identifier, response.status_code
     )
-    return []
+    return {}
 
 def extract_publisher_metadata(
     extensions: list
@@ -138,11 +147,17 @@ def extract_publisher_metadata(
     """
 
     publishers_metadata = []
+    unique_publishers = set()
 
     for extension in extensions:
         publisher_metadata = extension["publisher"]
+        publisher_id = publisher_metadata["publisherId"]
+        if publisher_id in unique_publishers:
+            continue
+        unique_publishers.add(publisher_id)
+
         publishers_metadata.append({
-            "publisher_id": publisher_metadata["publisherId"],
+            "publisher_id": publisher_id,
             "publisher_name": publisher_metadata["publisherName"],
             "display_name": publisher_metadata["displayName"],
             "flags": publisher_metadata["flags"].split(", "),
@@ -192,11 +207,14 @@ def extract_extension_metadata(
     return pd.DataFrame(extensions_metadata)
 
 def extract_release_metadata(
-    extension_releases: list
+    extension_releases: dict
 ) -> pd.DataFrame:
     """
     TODO
     """
+
+    if "extensionId" not in extension_releases:
+        return pd.DataFrame()
 
     releases = []
     release_ids = set()

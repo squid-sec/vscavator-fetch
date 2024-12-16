@@ -13,11 +13,11 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         extension_id VARCHAR(255) PRIMARY KEY NOT NULL,
         extension_name VARCHAR(255) NOT NULL,
         display_name VARCHAR(255) NOT NULL,
-        flags VARCHAR(255) ARRAY,
+        flags TEXT ARRAY,
         last_updated DATE NOT NULL,
         published_date DATE NOT NULL,
         release_date DATE NOT NULL,
-        short_description VARCHAR(255) NOT NULL,
+        short_description TEXT NOT NULL,
         latest_release_version VARCHAR(255) NOT NULL,
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
@@ -29,7 +29,7 @@ CREATE_PUBLISHERS_TABLE_QUERY = """
         publisher_id VARCHAR(255) PRIMARY KEY NOT NULL,
         publisher_name VARCHAR(255) NOT NULL,
         display_name VARCHAR(255) NOT NULL,
-        flags VARCHAR(255) ARRAY,
+        flags TEXT ARRAY,
         domain VARCHAR(255),
         is_domain_verified BOOLEAN NOT NULL
     );
@@ -40,7 +40,7 @@ CREATE_RELEASES_TABLE_QUERY = """
         extension_id VARCHAR(255) NOT NULL,
         version VARCHAR(255) NOT NULL,
         last_updated DATE NOT NULL,
-        flags VARCHAR(255) ARRAY,
+        flags TEXT ARRAY,
         uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
