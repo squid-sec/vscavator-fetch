@@ -28,7 +28,8 @@ def upload_extension_to_s3(
     extension_version: str
 ) -> None:
     """
-    TODO
+    upload_extension_to_s3 fetches the given extension from VSCode Marketplace and
+    uploads the .vsix file to S3
     """
 
     url = DOWNLOAD_URL.format(
@@ -83,11 +84,12 @@ def upload_all_extensions_to_s3(
     combined_df: pd.DataFrame
 ) -> None:
     """
-    TODO
+    upload_all_extensions_to_s3 fetches and uploads the given extensions to S3
     """
 
     unique_extensions = set()
     for _, row in combined_df.iterrows():
+        # Only fetch the latest release of an extension
         extension_id = row["extension_id"]
         if extension_id in unique_extensions:
             continue
@@ -97,6 +99,7 @@ def upload_all_extensions_to_s3(
         extension_name = row["extension_name"]
         extension_version = row["version"]
 
+        # Check if extension version has already been uploaded to S3
         if is_uploaded_to_s3(logger, connection, extension_id, extension_version):
             logger.info(
                 "Skipped uploading version %s of extension %s to S3 since it has already been "
@@ -114,7 +117,7 @@ def get_all_object_keys(
     s3_client: BaseClient
 ) -> list:
     """
-    TODO
+    get_all_object_keys retrieves all object key names from the bucket
     """
 
     paginator = s3_client.get_paginator('list_objects_v2')
