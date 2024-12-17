@@ -1,5 +1,5 @@
 """
-TODO
+db.py contains database related functions
 """
 
 import os
@@ -50,7 +50,7 @@ def connect_to_database(
     logger: Logger
 ) -> psycopg2.extensions.connection:
     """
-    TODO
+    connect_to_database establishes a connection to the SQL database
     """
 
     connection = psycopg2.connect(
@@ -81,7 +81,7 @@ def create_table(
     create_table_query: str
 ) -> None:
     """
-    TODO
+    create_table executes the create table query for the given table
     """
 
     if connection is None:
@@ -103,7 +103,7 @@ def create_all_tables(
     connection: psycopg2.extensions.connection
 ) -> None:
     """
-    TODO
+    create_all_tables creates the publishers, extensions, and releases tables
     """
 
     create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
@@ -118,7 +118,7 @@ def upsert_data(
     data: list
 ) -> None:
     """
-    TODO
+    upsert_data executes the upsert data query with the given data on the given table
     """
 
     cursor = connection.cursor()
@@ -145,7 +145,7 @@ def upsert_extensions(
     batch_size: int = 5000
 ) -> None:
     """
-    TODO
+    upsert_extensions upserts the given extensions to the database in batches
     """
 
     upsert_query = """
@@ -196,7 +196,7 @@ def upsert_publishers(
     batch_size: int = 5000
 ) -> None:
     """
-    TODO
+    upsert_publishers upserts the given publishers to the database in batches
     """
 
     upsert_query = """
@@ -237,7 +237,7 @@ def upsert_releases(
     batch_size: int = 5000
 ) -> None:
     """
-    TODO
+    upser_releases upserts the given releases to the database in batches
     """
 
     upsert_query = """
@@ -274,7 +274,7 @@ def select_extensions(
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
     """
-    TODO
+    select_extensions retrieves all extensions from the database in chunks
     """
 
     query = """
@@ -294,7 +294,7 @@ def select_publishers(
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
     """
-    TODO
+    select_publishers retrieves all publishers from the database in chunks
     """
 
     query = """
@@ -314,7 +314,7 @@ def select_releases(
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
     """
-    TODO
+    select_releases retrieves all releases from the database in chunks
     """
 
     query = """
@@ -336,7 +336,8 @@ def is_uploaded_to_s3(
     extension_version: str
 ) -> bool:
     """
-    TODO
+    is_uploaded_to_s3 retrieves the uploaded to S3 status for the given extension
+    release from the releases table
     """
 
     query = f"""
@@ -369,7 +370,8 @@ def get_old_latest_release_version(
     extension_identifier: str
 ) -> str:
     """
-    TODO
+    get_old_latest_release_version retrieves the latest extension release from the
+    extensions table
     """
 
     query = f"""

@@ -1,5 +1,5 @@
 """
-TODO
+df.py contains dataframe related functions
 """
 
 import pandas as pd
@@ -10,7 +10,7 @@ def combine_dataframes(
     releases_df: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    TODO
+    combine_dataframes merges the extensions, publishers, and releases dataframes
     """
 
     releases_extensions_df = releases_df.merge(extensions_df, on="extension_id", how="inner")
@@ -21,7 +21,8 @@ def object_keys_to_dataframe(
     object_keys: list
 ) -> pd.DataFrame:
     """
-    TODO
+    object_keys_to_dataframe extracts the publisher name, extension name, and extension
+    version from the S3 object keys
     """
 
     parsed_object_keys = []
@@ -43,7 +44,8 @@ def verified_uploaded_to_s3(
     version: str
 ) -> bool:
     """
-    TODO
+    verified_uploaded_to_s3 checks if the status of given extension release in the
+    dataframe is uploaded to S3
     """
 
     return not df.loc[
