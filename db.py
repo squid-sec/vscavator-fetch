@@ -278,8 +278,20 @@ def select_extensions(
     """
 
     query = """
-        SELECT *
-        FROM extensions;
+        SELECT
+            extension_id,
+            extension_name,
+            display_name,
+            flags,
+            last_updated,
+            published_date,
+            release_date,
+            short_description,
+            latest_release_version,
+            publisher_id,
+            extension_identifier
+        FROM
+            extensions;
     """
 
     chunks = []
@@ -298,8 +310,15 @@ def select_publishers(
     """
 
     query = """
-        SELECT *
-        FROM publishers;
+        SELECT
+            publisher_id,
+            publisher_name,
+            display_name,
+            flags,
+            domain,
+            is_domain_verified
+        FROM
+            publishers;
     """
 
     chunks = []
@@ -318,8 +337,15 @@ def select_releases(
     """
 
     query = """
-        SELECT *
-        FROM releases;
+        SELECT
+            release_id,
+            extension_id,
+            version,
+            last_updated,
+            flags,
+            uploaded_to_s3
+        FROM
+            releases;
     """
 
     chunks = []
