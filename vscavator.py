@@ -24,6 +24,7 @@ from db import connect_to_database, create_all_tables, upsert_extensions, \
     select_extensions, select_publishers, select_releases
 from s3 import upload_all_extensions_to_s3, get_all_object_keys
 from df import combine_dataframes, object_keys_to_dataframe, verified_uploaded_to_s3
+from safe import validate_type, get_value_from_dict, convert_to_json
 
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 HEADERS = {
@@ -71,12 +72,38 @@ def get_extensions(
     )
 
     if response.status_code == 200:
-        results = response.json()["results"][0]["extensions"]
-        logger.info(
-            "Fetched extensions from page number %d with page size %d",
-            page_number, page_size
+        data = convert_to_json(logger, response)
+        if data is None:
+            return [], False
+
+        if not validate_type(logger, data, dict, "response JSON"):
+            return [], False
+
+        results = get_value_from_dict(logger, data, "results", "response JSON")
+        if "results" not in data:
+            logger.error("'results' does not exist in the response JSON")
+            return [], False
+
+        if len(results) == 0:
+            logger.error("Response JSON results length is zero")
+            return [], False
+
+        first_result = results[0]
+        if not validate_type(logger, first_result, dict, "response JSON first result"):
+            return [], False
+
+        extensions = get_value_from_dict(
+            logger, first_result,
+            "extensions", "response JSON first result"
         )
-        return results, True
+        if not validate_type(logger, extensions, list, "extensions in response JSON first result"):
+            return [], False
+
+        logger.info(
+            "Fetched %d extensions from page number %d with page size %d",
+            len(extensions), page_number, page_size
+        )
+        return extensions, True
 
     logger.error(
         "Error fetching extensions from page number %d with page size %d: status code %d",
