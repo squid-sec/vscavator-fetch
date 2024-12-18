@@ -32,6 +32,7 @@ HEADERS = {
 }
 EXTENSIONS_PAGE_SIZE = 2
 EXTENSIONS_LAST_PAGE_NUMBER = 2
+RELEASES_PAGE_SIZE = 100
 REQUESTS_FAILURE_DELAY = 60
 REQUESTS_TIMEOUT = 10
 REQUESTS_DELAY=0.25
@@ -86,7 +87,9 @@ def get_extensions(
 def get_extension_releases(
     logger: Logger,
     session: requests.Session,
-    extension_identifier: str
+    extension_identifier: str,
+    page_number: int,
+    page_size: int = 100
 ) -> Tuple[dict, bool]:
     """
     get_extension_releases fetches releases metadata for a given extension from
@@ -103,8 +106,8 @@ def get_extension_releases(
                         'value': extension_identifier,
                     },
                 ],
-                'pageSize': 100,
-                'pageNumber': 1,
+                'pageSize': page_size,
+                'pageNumber': page_number,
             },
         ],
         'flags': 2151,
@@ -207,11 +210,18 @@ def get_all_releases(
 
         time.sleep(REQUESTS_DELAY)
 
-        releases, success = get_extension_releases(logger, session, extension_identifier)
-        all_releases.append(releases)
+        page_number = 1
+        extension_versions = [None]
+        while len(extension_versions) != 0:
+            releases, success = get_extension_releases(logger, session, extension_identifier, page_number)
+            all_releases.append(releases)
 
-        if not success:
-            failed_extensions.append(extension_identifier)
+            if not success:
+                failed_extensions.append(extension_identifier)
+                break
+
+            extension_versions = releases["versions"]
+            page_number += 1
 
     if len(failed_extensions) > 0:
         logger.warning(
@@ -224,14 +234,21 @@ def get_all_releases(
         for failed_extension in failed_extensions:
             time.sleep(REQUESTS_DELAY)
 
-            releases, success = get_extension_releases(logger, session, failed_extension)
-            all_releases.append(releases)
+            page_number = 1
+            extension_versions = [None]
+            while len(extension_versions) != 0:
+                releases, success = get_extension_releases(logger, session, failed_extension, page_number)
+                all_releases.append(releases)
 
-            if not success:
-                logger.error(
-                    "Failed to fetch releases for %s for a second time",
-                    failed_extension
-                )
+                if not success:
+                    logger.error(
+                        "Failed to fetch releases for %s for a second time",
+                        failed_extension
+                    )
+                    break
+
+                extension_versions = releases["versions"]
+                page_number += 1
 
     return all_releases
 
