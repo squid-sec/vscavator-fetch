@@ -20,13 +20,14 @@ REQUESTS_TIMEOUT = 10
 
 def upload_extension_to_s3(
     logger: Logger,
+    session: requests.Session,
     connection: psycopg2.extensions.connection,
     s3_client: BaseClient,
     extension_id: str,
     publisher_name: str,
     extension_name: str,
     extension_version: str
-) -> None:
+) -> bool:
     """
     upload_extension_to_s3 fetches the given extension from VSCode Marketplace and
     uploads the .vsix file to S3
@@ -36,8 +37,9 @@ def upload_extension_to_s3(
         publisher=publisher_name, name=extension_name, version=extension_version
     )
 
-    try:
-        response = requests.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
+    response = session.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
+
+    if response.status_code == 200:
         s3_key = f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
         try:
             s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
@@ -71,14 +73,18 @@ def upload_extension_to_s3(
                 "Error uploading extension %s version %s by publisher %s to S3: %s",
                 extension_name, extension_version, publisher_name, e
             )
-    except Exception as e: # pylint: disable=broad-exception-caught
-        logger.error(
-            "Error downloading extension %s version %s by publisher %s from marketplace: %s",
-            extension_name, version, publisher_name, response.status_code, e
-        )
+        return True
+
+
+    logger.error(
+        "Error downloading extension %s version %s by publisher %s from marketplace: %s",
+        extension_name, extension_version, publisher_name, e
+    )
+    return False
 
 def upload_all_extensions_to_s3(
     logger: Logger,
+    session: requests.Session,
     connection: psycopg2.extensions.connection,
     s3_client: BaseClient,
     combined_df: pd.DataFrame
@@ -88,6 +94,8 @@ def upload_all_extensions_to_s3(
     """
 
     unique_extensions = set()
+    failed_extensions = []
+
     for _, row in combined_df.iterrows():
         # Only fetch the latest release of an extension
         extension_id = row["extension_id"]
@@ -108,10 +116,33 @@ def upload_all_extensions_to_s3(
             )
             continue
 
-        upload_extension_to_s3(
-            logger, connection, s3_client, extension_id, publisher_name,
+        success = upload_extension_to_s3(
+            logger, session, connection, s3_client, extension_id, publisher_name,
             extension_name, extension_version
         )
+
+        if not success:
+            failed_extensions.append(
+                (extension_id, publisher_name, extension_name, extension_version)
+            )
+
+    if len(failed_extensions) > 0:
+        logger.warning(
+            "Failed to upload %d extensions to S3... trying again",
+            len(failed_extensions)
+        )
+
+        for extension_id, publisher_name, extension_name, extension_version in failed_extensions:
+            success = upload_extension_to_s3(
+                logger, session, connection, s3_client, extension_id, publisher_name,
+                extension_name, extension_version
+            )
+
+            if not success:
+                logger.error(
+                    "Failed to upload extension %s version %s by %s to S3 for a second time",
+                    extension_name, extension_version, publisher_name
+                )
 
 def get_all_object_keys(
     s3_client: BaseClient

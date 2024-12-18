@@ -2,13 +2,17 @@
 vscavator.py orchestrates the extension retrieval process
 """
 
+import os
 import time
 import logging
 import logging.config
 from logging import Logger
+from typing import Tuple
 import boto3
 from botocore.client import BaseClient
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 from dateutil import parser
 from packaging import version
 import pandas as pd
@@ -21,25 +25,23 @@ from db import connect_to_database, create_all_tables, upsert_extensions, \
 from s3 import upload_all_extensions_to_s3, get_all_object_keys
 from df import combine_dataframes, object_keys_to_dataframe, verified_uploaded_to_s3
 
-load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-LOGGER = logging.getLogger("vscavator")
-
 EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 HEADERS = {
     "Content-Type": "application/json",
     "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
 }
-REQUESTS_TIMEOUT = 10
 EXTENSIONS_PAGE_SIZE = 2
 EXTENSIONS_LAST_PAGE_NUMBER = 2
-REQUESTS_SLEEP = 60
+REQUESTS_FAILURE_DELAY = 60
+REQUESTS_TIMEOUT = 10
+REQUESTS_DELAY=0.25
 
 def get_extensions(
     logger: Logger,
+    session: requests.Session,
     page_number: int,
     page_size: int
-) -> list:
+) -> Tuple[list, bool]:
     """
     get_extensions fetches extension metadata from the VSCode Marketplace
     """
@@ -63,7 +65,7 @@ def get_extensions(
         ],
     }
 
-    response = requests.post(
+    response = session.post(
         EXTENSIONS_URL, headers=HEADERS, json=payload, timeout=REQUESTS_TIMEOUT
     )
 
@@ -73,18 +75,19 @@ def get_extensions(
             "Fetched extensions from page number %d with page size %d",
             page_number, page_size
         )
-        return results
+        return results, True
 
     logger.error(
         "Error fetching extensions from page number %d with page size %d: status code %d",
         page_number, page_size, response.status_code
     )
-    return []
+    return [], False
 
 def get_extension_releases(
     logger: Logger,
+    session: requests.Session,
     extension_identifier: str
-) -> dict:
+) -> Tuple[dict, bool]:
     """
     get_extension_releases fetches releases metadata for a given extension from
     the VSCode Marketplace
@@ -107,7 +110,7 @@ def get_extension_releases(
         'flags': 2151,
     }
 
-    response = requests.post(
+    response = session.post(
         EXTENSIONS_URL, json=json_data, headers=HEADERS, timeout=REQUESTS_TIMEOUT
     )
 
@@ -117,23 +120,17 @@ def get_extension_releases(
             "Fetched extension releases for extension %s",
             extension_identifier
         )
-        return results
-    elif response.status_code == 429:
-        logging.warning(
-            "Received 429 Too Many Requests error while fetching extension releases for %s... "
-            "sleeping for %d seconds",
-            extension_identifier, REQUESTS_SLEEP
-        )
-        time.sleep(REQUESTS_SLEEP)
+        return results, True
 
     logger.error(
-        "Error fetching extension releases for extension %s: %d",
+        "Error fetching extension releases for extension %s: status code %d",
         extension_identifier, response.status_code
     )
-    return {}
+    return {}, False
 
 def get_all_extensions(
     logger: Logger,
+    session: requests.Session,
     page_size: int = EXTENSIONS_PAGE_SIZE,
     last_page_number: int = EXTENSIONS_LAST_PAGE_NUMBER
 ) -> list:
@@ -142,13 +139,42 @@ def get_all_extensions(
     """
 
     all_extensions = []
+    failed_extensions = []
+
     for page_number in range(1, last_page_number + 1):
-        extensions = get_extensions(logger, page_number, page_size)
+        time.sleep(REQUESTS_DELAY)
+        extensions, success = get_extensions(logger, session, page_number, page_size)
+
         all_extensions.extend(extensions)
+        if not success:
+            failed_extensions.append((page_number, page_size))
+
+    if len(failed_extensions) > 0:
+        logger.warning(
+            "Failed to get %d extensions... trying again",
+            len(failed_extensions)
+        )
+
+        time.sleep(REQUESTS_FAILURE_DELAY)
+
+        for page_number, page_size in failed_extensions:
+            time.sleep(REQUESTS_DELAY)
+
+            extensions, success = get_extensions(logger, session, page_number, page_size)
+            all_extensions.extend(extensions)
+
+            if not success:
+                logger.error(
+                    "Failed to fetch extensions from page number %d with page size "
+                    "%d for a second time",
+                    page_number, page_size
+                )
+
     return all_extensions
 
 def get_all_releases(
     logger: Logger,
+    session: requests.Session,
     connection: psycopg2.extensions.connection,
     extensions_df: pd.DataFrame
 ) -> list:
@@ -157,6 +183,7 @@ def get_all_releases(
     """
 
     all_releases = []
+    failed_extensions = []
     extension_identifiers = extensions_df["extension_identifier"].tolist()
 
     for extension_identifier in extension_identifiers:
@@ -178,8 +205,33 @@ def get_all_releases(
             )
             continue
 
-        releases = get_extension_releases(logger, extension_identifier)
+        time.sleep(REQUESTS_DELAY)
+
+        releases, success = get_extension_releases(logger, session, extension_identifier)
         all_releases.append(releases)
+
+        if not success:
+            failed_extensions.append(extension_identifier)
+
+    if len(failed_extensions) > 0:
+        logger.warning(
+            "Failed to get the releases from %d extensions... trying again",
+            len(failed_extensions)
+        )
+
+        time.sleep(REQUESTS_FAILURE_DELAY)
+
+        for failed_extension in failed_extensions:
+            time.sleep(REQUESTS_DELAY)
+
+            releases, success = get_extension_releases(logger, session, failed_extension)
+            all_releases.append(releases)
+
+            if not success:
+                logger.error(
+                    "Failed to fetch releases for %s for a second time",
+                    failed_extension
+                )
 
     return all_releases
 
@@ -235,7 +287,7 @@ def extract_extension_metadata(
             "last_updated": parser.isoparse(extension["lastUpdated"]),
             "published_date": parser.isoparse(extension["publishedDate"]),
             "release_date": parser.isoparse(extension["releaseDate"]),
-            "short_description": extension["shortDescription"],
+            "short_description": extension.get("shortDescription", ""),
             "latest_release_version": get_latest_version(extension["versions"]),
             "publisher_id": extension["publisher"]["publisherId"],
             "extension_identifier": extension_identifier
@@ -345,38 +397,70 @@ def validate_data_consistency(
                 s3_uploaded_to_s3
             )
 
+def configure_requests_session() -> requests.Session:
+    """
+    configure_requests_session creates requests session with configurable retry strategy
+    """
+
+    retry_strategy = Retry(
+        total=5,
+        backoff_factor=4,
+        status_forcelist=[429],
+        allowed_methods=["GET", "POST"]
+    )
+
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session = requests.Session()
+    session.mount("https://", adapter)
+
+    return session
+
+def configure_logger() -> Logger:
+    """
+    configure_logger configures the logger for the application
+    """
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger(os.getenv("LOGGER_NAME"))
+    return logger
+
 def main() -> None:
     """
     main handles the entire extension retrieval process
     """
 
+    load_dotenv()
+    logger = configure_logger()
+    session = configure_requests_session()
+
     # Setup the database
-    connection = connect_to_database(LOGGER)
-    create_all_tables(LOGGER, connection)
+    connection = connect_to_database(logger)
+    create_all_tables(logger, connection)
 
     # Retrieve extension, publisher, and release data
-    extensions = get_all_extensions(LOGGER)
+    extensions = get_all_extensions(logger, session)
     extensions_df = extract_extension_metadata(extensions)
     publishers_df = extract_publisher_metadata(extensions)
-    releases = get_all_releases(LOGGER, connection, extensions_df)
+    releases = get_all_releases(logger, session, connection, extensions_df)
     releases_df = extract_release_metadata(releases)
 
     # Insert extension, publisher, and release data into the database
-    upsert_publishers(LOGGER, connection, publishers_df)
-    upsert_extensions(LOGGER, connection, extensions_df)
-    upsert_releases(LOGGER, connection, releases_df)
+    upsert_publishers(logger, connection, publishers_df)
+    upsert_extensions(logger, connection, extensions_df)
+    upsert_releases(logger, connection, releases_df)
 
     # Upload extension files to S3
     s3_client = boto3.client("s3")
     combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
-    upload_all_extensions_to_s3(LOGGER, connection, s3_client, combined_df)
+    upload_all_extensions_to_s3(logger, session, connection, s3_client, combined_df)
 
     # Check the consistency of data in the database and S3
-    validate_data_consistency(LOGGER, connection, s3_client)
+    validate_data_consistency(logger, connection, s3_client)
 
     # Close all connections
     s3_client.close()
     connection.close()
+    session.close()
 
 if __name__ == "__main__":
     main()
