@@ -74,13 +74,15 @@ def get_extensions(
     if response.status_code == 200:
         extensions = response.json()["results"][0]["extensions"]
         logger.info(
-            "Fetched %d extensions from page number %d with page size %d",
+            "get_extensions: Fetched %d extensions from page number %d "
+            "with page size %d",
             len(extensions), page_number, page_size
         )
         return extensions, True
 
     logger.error(
-        "Error fetching extensions from page number %d with page size %d: status code %d",
+        "get_extensions: Error fetching extensions from page number %d "
+        "with page size %d: status code %d",
         page_number, page_size, response.status_code
     )
     return [], False
@@ -121,14 +123,14 @@ def get_extension_releases(
     if response.status_code == 200:
         releases = response.json()["results"][0]["extensions"][0]
         logger.info(
-            "Fetched extension releases for extension %s",
+            "get_extension_releases: Fetched extension releases for extension %s",
             extension_identifier
         )
         return releases, True
 
     logger.error(
-        "Error fetching release metadata for extension %s from page number %d "
-        "with page size %d: status code %d",
+        "get_extension_releases: Error fetching release metadata for extension %s "
+        "from page number %d with page size %d: status code %d",
         extension_identifier, page_number, page_size, response.status_code
     )
     return {}, False
@@ -156,7 +158,7 @@ def get_all_extensions(
 
     if len(failed_extensions) > 0:
         logger.warning(
-            "Failed to get %d extensions... trying again",
+            "get_all_extensions: Failed to get %d extensions... trying again",
             len(failed_extensions)
         )
 
@@ -172,8 +174,8 @@ def get_all_extensions(
 
             if not success:
                 logger.error(
-                    "Failed to fetch extensions from page number %d with page size "
-                    "%d for a second time",
+                    "get_all_extensions: Failed to fetch extensions from page number "
+                    "%d with page size %d for a second time",
                     failed_page_number, failed_page_size
                 )
 
@@ -207,7 +209,8 @@ def get_all_releases(
         # Check if the latest release has already been fetched for the extension in a previous run
         if old_latest_release_version == new_latest_release_version:
             logger.info(
-                "Skipped fetching the releases for %s since they have already been retrieved",
+                "get_all_releases: Skipped fetching the releases for %s "
+                "since they have already been retrieved",
                 extension_identifier
             )
             continue
@@ -231,7 +234,8 @@ def get_all_releases(
 
     if len(failed_extensions) > 0:
         logger.warning(
-            "Failed to get the releases from %d extensions... trying again",
+            "get_all_releases: Failed to get the releases from %d extensions... "
+            "trying again",
             len(failed_extensions)
         )
 
@@ -250,7 +254,8 @@ def get_all_releases(
 
                 if not success:
                     logger.error(
-                        "Failed to fetch releases for %s for a second time",
+                        "get_all_releases: Failed to fetch releases for %s "
+                        "for a second time",
                         failed_extension
                     )
                     break
@@ -278,7 +283,7 @@ def extract_publisher_metadata(
         # Deduplicate publisher data
         if publisher_id in unique_publishers:
             logger.info(
-                "Duplicate publisher found with ID %s",
+                "extract_publisher_metadata: Duplicate publisher found with ID %s",
                 publisher_id
             )
             continue
@@ -348,7 +353,8 @@ def extract_release_metadata(
             # This shouldn't be necessary but the release ID is not always unique
             if release_id in release_ids:
                 logger.info(
-                    "Duplicate extension release found with release ID %s",
+                    "extract_release_metadata: Duplicate extension release found "
+                    "with release ID %s",
                     release_id
                 )
                 continue
@@ -391,7 +397,7 @@ def get_new_latest_release_version(
 
     if latest_release_version.empty:
         logger.info(
-            "Failed to get new latest release version from %s",
+            "get_new_latest_release_version: Failed to get new latest release version from %s",
             extension_identifier
         )
         return ""
@@ -431,7 +437,7 @@ def validate_data_consistency(
         # Check if what exists in S3 matches the database state
         if db_uploaded_to_s3 != s3_uploaded_to_s3:
             logger.error(
-                "Publisher %s, extension %s, version %s: "
+                "validate_data_consistency: Publisher %s, extension %s, version %s: "
                 "database state uploaded_to_s3: %s, while S3 state uploaded_to_s3: %s",
                 publisher_name, extension_name, extension_version, db_uploaded_to_s3,
                 s3_uploaded_to_s3
