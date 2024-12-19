@@ -38,7 +38,7 @@ def object_keys_to_dataframe(
     return pd.DataFrame(parsed_object_keys)
 
 def verified_uploaded_to_s3(
-    df: pd.DataFrame,
+    object_keys_df: pd.DataFrame,
     publisher_name: str,
     extension_name: str,
     version: str
@@ -48,8 +48,8 @@ def verified_uploaded_to_s3(
     dataframe is uploaded to S3
     """
 
-    return not df.loc[
-        (df["publisher_name"] == publisher_name) &
-        (df["extension_name"] == extension_name) &
-        (df["version"] == version)
+    return not object_keys_df.loc[
+        (object_keys_df["publisher_name"] == publisher_name) &
+        (object_keys_df["extension_name"] == extension_name) &
+        (object_keys_df["version"] == version)
     ].empty
