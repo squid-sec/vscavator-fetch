@@ -45,7 +45,7 @@ def upload_extension_to_s3(
 
         s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
         logger.info(
-            "Uploaded extension to S3: s3://%s/%s",
+            "upload_extension_to_s3: Uploaded extension to S3: s3://%s/%s",
             os.getenv("S3_BUCKET_NAME"), s3_key
         )
 
@@ -62,8 +62,8 @@ def upload_extension_to_s3(
         return True
 
     logger.error(
-        "Error downloading extension %s version %s by publisher %s from marketplace: "
-        "status code %d",
+        "upload_extension_to_s3: Error downloading extension %s version %s by publisher %s "
+        "from marketplace: status code %d",
         extension_name, extension_version, publisher_name, response.status_code
     )
     return False
@@ -96,8 +96,8 @@ def upload_all_extensions_to_s3(
         # Check if extension version has already been uploaded to S3
         if is_uploaded_to_s3(logger, connection, extension_id, extension_version):
             logger.info(
-                "Skipped uploading version %s of extension %s to S3 since it has already been "
-                "uploaded",
+                "upload_all_extensions_to_s3: Skipped uploading version %s of extension %s "
+                "to S3 since it has already been uploaded",
                 extension_version, extension_name
             )
             continue
@@ -120,7 +120,7 @@ def upload_all_extensions_to_s3(
 
     if len(failed_extensions) > 0:
         logger.warning(
-            "Failed to upload %d extensions to S3... trying again",
+            "upload_all_extensions_to_s3: Failed to upload %d extensions to S3... trying again",
             len(failed_extensions)
         )
 
@@ -138,7 +138,8 @@ def upload_all_extensions_to_s3(
 
             if not success:
                 logger.error(
-                    "Failed to upload extension %s version %s by %s to S3 for a second time",
+                    "upload_all_extensions_to_s3: Failed to upload extension %s version %s by %s "
+                    "to S3 for a second time",
                     extension_name, extension_version, publisher_name
                 )
 

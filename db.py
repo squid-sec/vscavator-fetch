@@ -63,13 +63,13 @@ def connect_to_database(
 
     if connection:
         logger.info(
-            "Connected to database %s on host %s:%s",
+            "connect_to_database: Connected to database %s on host %s:%s",
             os.getenv("PG_DATABASE"), os.getenv("PG_HOST"), os.getenv("PG_PORT")
         )
         return connection
 
     logger.error(
-        "Failed to connect to database %s on host %s",
+        "connect_to_database: Failed to connect to database %s on host %s",
         os.getenv("PG_DATABASE"), os.getenv("PG_HOST")
     )
     return None
@@ -85,7 +85,7 @@ def create_table(
     """
 
     if connection is None:
-        logger.error("Failed to create %s table: no database connection", table_name)
+        logger.error("create_table: Failed to create %s table: no database connection", table_name)
         return
 
     cursor = connection.cursor()
@@ -94,7 +94,7 @@ def create_table(
     cursor.close()
 
     logger.info(
-        "Created %s table",
+        "create_table: Created %s table",
         table_name
     )
 
@@ -127,7 +127,7 @@ def upsert_data(
     cursor.close()
 
     logger.info(
-        "Upserted %d rows of %s data to the database",
+        "upsert_data: Upserted %d rows of %s data to the database",
         len(data), table_name
     )
 
@@ -178,7 +178,7 @@ def upsert_extensions(
         batch = values[i:i + batch_size]
         upsert_data(logger, connection, "extensions", upsert_query, batch)
         logger.info(
-            "Upserted extensions batch %d of %d rows",
+            "upsert_extensions: Upserted extensions batch %d of %d rows",
             i // batch_size + 1, len(batch)
         )
 
@@ -219,7 +219,7 @@ def upsert_publishers(
         batch = values[i:i + batch_size]
         upsert_data(logger, connection, "publishers", upsert_query, batch)
         logger.info(
-            "Upserted publishers batch %d of %d rows",
+            "upsert_publishers: Upserted publishers batch %d of %d rows",
             i // batch_size + 1, len(batch)
         )
 
@@ -258,7 +258,7 @@ def upsert_releases(
         batch = values[i:i + batch_size]
         upsert_data(logger, connection, "releases", upsert_query, values)
         logger.info(
-            "Upserted releases batch %d of %d rows",
+            "upsert_releases: Upserted releases batch %d of %d rows",
             i // batch_size + 1, len(batch)
         )
 
@@ -290,7 +290,10 @@ def select_extensions(
     chunks = []
     for chunk in pd.read_sql_query(query, connection, chunksize=10000):
         chunks.append(chunk)
-        logger.info("Processed chunk of extensions with %d rows", len(chunk))
+        logger.info(
+            "select_extensions: Processed chunk of extensions with %d rows",
+            len(chunk)
+        )
 
     return pd.concat(chunks, ignore_index=True)
 
@@ -317,7 +320,10 @@ def select_publishers(
     chunks = []
     for chunk in pd.read_sql_query(query, connection, chunksize=10000):
         chunks.append(chunk)
-        logger.info("Processed chunk of publishers with %d rows", len(chunk))
+        logger.info(
+            "select_publishers: Processed chunk of publishers with %d rows",
+            len(chunk)
+        )
 
     return pd.concat(chunks, ignore_index=True)
 
@@ -344,7 +350,10 @@ def select_releases(
     chunks = []
     for chunk in pd.read_sql_query(query, connection, chunksize=10000):
         chunks.append(chunk)
-        logger.info("Processed chunk of releases with %d rows", len(chunk))
+        logger.info(
+            "select_releases: Processed chunk of releases with %d rows",
+            len(chunk)
+        )
 
     return pd.concat(chunks, ignore_index=True)
 
@@ -372,7 +381,7 @@ def is_uploaded_to_s3(
         cursor.close()
 
         logger.info(
-            "Fetched upload status for version %s of extension %s",
+            "is_uploaded_to_s3: Fetched upload status for version %s of extension %s",
             extension_version, extension_id
         )
         return result[0]
@@ -380,7 +389,7 @@ def is_uploaded_to_s3(
     cursor.close()
 
     logger.info(
-        "No S3 upload status for version %s of extension %s was found",
+        "is_uploaded_to_s3: No S3 upload status for version %s of extension %s was found",
         extension_version, extension_id
     )
     return False
@@ -409,7 +418,8 @@ def get_old_latest_release_version(
         cursor.close()
 
         logger.info(
-            "Fetched latest release version from the extensions table for extension %s",
+            "get_old_latest_release_version: Fetched latest release version "
+            "from the extensions table for extension %s",
             extension_identifier
         )
         return result[0]
@@ -417,7 +427,8 @@ def get_old_latest_release_version(
     cursor.close()
 
     logger.info(
-        "No latest release version from the extensions table for extension %s was found",
+        "get_old_latest_release_version: No latest release version from the extensions table "
+        "for extension %s was found",
         extension_identifier
     )
     return ""
