@@ -22,15 +22,17 @@ def upload_extension_to_s3(
     session: requests.Session,
     connection: psycopg2.extensions.connection,
     s3_client: BaseClient,
-    extension_id: str,
-    publisher_name: str,
-    extension_name: str,
-    extension_version: str
+    extension_info: dict
 ) -> bool:
     """
     upload_extension_to_s3 fetches the given extension from VSCode Marketplace and
     uploads the .vsix file to S3
     """
+
+    publisher_name = extension_info["publisher_name"]
+    extension_name = extension_info["extension_name"]
+    extension_version = extension_info["extension_version"]
+    extension_id = extension_info["extension_id"]
 
     url = DOWNLOAD_URL.format(
         publisher=publisher_name, name=extension_name, version=extension_version
@@ -60,8 +62,9 @@ def upload_extension_to_s3(
         return True
 
     logger.error(
-        "Error downloading extension %s version %s by publisher %s from marketplace: %s",
-        extension_name, extension_version, publisher_name, e
+        "Error downloading extension %s version %s by publisher %s from marketplace: "
+        "status code %d",
+        extension_name, extension_version, publisher_name, response.status_code
     )
     return False
 
@@ -99,9 +102,15 @@ def upload_all_extensions_to_s3(
             )
             continue
 
+        extension_info = {
+            "extension_id": extension_id,
+            "publisher_name": publisher_name,
+            "extension_name": extension_name,
+            "extension_version": extension_version
+        }
+
         success = upload_extension_to_s3(
-            logger, session, connection, s3_client, extension_id, publisher_name,
-            extension_name, extension_version
+            logger, session, connection, s3_client, extension_info
         )
 
         if not success:
@@ -116,9 +125,15 @@ def upload_all_extensions_to_s3(
         )
 
         for extension_id, publisher_name, extension_name, extension_version in failed_extensions:
+            extension_info = {
+                "extension_id": extension_id,
+                "publisher_name": publisher_name,
+                "extension_name": extension_name,
+                "extension_version": extension_version
+            }
+
             success = upload_extension_to_s3(
-                logger, session, connection, s3_client, extension_id, publisher_name,
-                extension_name, extension_version
+                logger, session, connection, s3_client, extension_info
             )
 
             if not success:
