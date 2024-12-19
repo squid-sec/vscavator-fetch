@@ -36,6 +36,7 @@ RELEASES_PAGE_SIZE = 100
 REQUESTS_FAILURE_DELAY = 60
 REQUESTS_TIMEOUT = 10
 REQUESTS_DELAY=0.25
+DEFAULT_DATE = "1970-01-01T00:00:00"
 
 def get_extensions(
     logger: Logger,
@@ -71,12 +72,12 @@ def get_extensions(
     )
 
     if response.status_code == 200:
-        results = response.json()["results"][0]["extensions"]
+        extensions = response.json()["results"][0]["extensions"]
         logger.info(
-            "Fetched extensions from page number %d with page size %d",
-            page_number, page_size
+            "Fetched %d extensions from page number %d with page size %d",
+            len(extensions), page_number, page_size
         )
-        return results, True
+        return extensions, True
 
     logger.error(
         "Error fetching extensions from page number %d with page size %d: status code %d",
@@ -118,16 +119,17 @@ def get_extension_releases(
     )
 
     if response.status_code == 200:
-        results = response.json()["results"][0]["extensions"][0]
+        releases = response.json()["results"][0]["extensions"][0]
         logger.info(
             "Fetched extension releases for extension %s",
             extension_identifier
         )
-        return results, True
+        return releases, True
 
     logger.error(
-        "Error fetching extension releases for extension %s: status code %d",
-        extension_identifier, response.status_code
+        "Error fetching release metadata for extension %s from page number %d "
+        "with page size %d: status code %d",
+        extension_identifier, page_number, page_size, response.status_code
     )
     return {}, False
 
@@ -160,17 +162,19 @@ def get_all_extensions(
 
         time.sleep(REQUESTS_FAILURE_DELAY)
 
-        for page_number, page_size in failed_extensions:
+        for failed_page_number, failed_page_size in failed_extensions:
             time.sleep(REQUESTS_DELAY)
 
-            extensions, success = get_extensions(logger, session, page_number, page_size)
+            extensions, success = get_extensions(
+                logger, session, failed_page_number, failed_page_size
+            )
             all_extensions.extend(extensions)
 
             if not success:
                 logger.error(
                     "Failed to fetch extensions from page number %d with page size "
                     "%d for a second time",
-                    page_number, page_size
+                    failed_page_number, failed_page_size
                 )
 
     return all_extensions
@@ -197,7 +201,7 @@ def get_all_releases(
 
         # Find the latest release version from the newly collected extension data
         new_latest_release_version = get_new_latest_release_version(
-            extensions_df, extension_identifier
+            logger, extensions_df, extension_identifier
         )
 
         # Check if the latest release has already been fetched for the extension in a previous run
@@ -213,14 +217,16 @@ def get_all_releases(
         page_number = 1
         extension_versions = [None]
         while len(extension_versions) != 0:
-            releases, success = get_extension_releases(logger, session, extension_identifier, page_number)
+            releases, success = get_extension_releases(
+                logger, session, extension_identifier, page_number
+            )
             all_releases.append(releases)
 
             if not success:
                 failed_extensions.append(extension_identifier)
                 break
 
-            extension_versions = releases["versions"]
+            extension_versions = releases.get("versions", [])
             page_number += 1
 
     if len(failed_extensions) > 0:
@@ -237,7 +243,9 @@ def get_all_releases(
             page_number = 1
             extension_versions = [None]
             while len(extension_versions) != 0:
-                releases, success = get_extension_releases(logger, session, failed_extension, page_number)
+                releases, success = get_extension_releases(
+                    logger, session, failed_extension, page_number
+                )
                 all_releases.append(releases)
 
                 if not success:
@@ -247,12 +255,13 @@ def get_all_releases(
                     )
                     break
 
-                extension_versions = releases["versions"]
+                extension_versions = releases.get("versions", [])
                 page_number += 1
 
     return all_releases
 
 def extract_publisher_metadata(
+    logger: Logger,
     extensions: list
 ) -> pd.DataFrame:
     """
@@ -268,6 +277,10 @@ def extract_publisher_metadata(
 
         # Deduplicate publisher data
         if publisher_id in unique_publishers:
+            logger.info(
+                "Duplicate publisher found with ID %s",
+                publisher_id
+            )
             continue
         unique_publishers.add(publisher_id)
 
@@ -313,6 +326,7 @@ def extract_extension_metadata(
     return pd.DataFrame(extensions_metadata)
 
 def extract_release_metadata(
+    logger: Logger,
     releases: list
 ) -> pd.DataFrame:
     """
@@ -331,8 +345,12 @@ def extract_release_metadata(
             release_id = extension_id + "-" + extension_version
 
             # Deduplicate release data
-            # TODO: This shouldn't be necessary but the release ID is not always unique
+            # This shouldn't be necessary but the release ID is not always unique
             if release_id in release_ids:
+                logger.info(
+                    "Duplicate extension release found with release ID %s",
+                    release_id
+                )
                 continue
             release_ids.add(release_id)
 
@@ -359,6 +377,7 @@ def get_latest_version(
     return max(versions, key=lambda x: version.parse(x["version"]))["version"]
 
 def get_new_latest_release_version(
+    logger: Logger,
     extensions_df: pd.DataFrame,
     extension_identifier: str
 ) -> str:
@@ -370,10 +389,14 @@ def get_new_latest_release_version(
         extensions_df["extension_identifier"] == extension_identifier, "latest_release_version"
     ]
 
-    if not latest_release_version.empty:
-        return latest_release_version.iloc[-1]
+    if latest_release_version.empty:
+        logger.info(
+            "Failed to get new latest release version from %s",
+            extension_identifier
+        )
+        return ""
 
-    return ""
+    return latest_release_version.iloc[-1]
 
 def validate_data_consistency(
     logger: Logger,
@@ -446,6 +469,7 @@ def main() -> None:
     main handles the entire extension retrieval process
     """
 
+    # Setup script
     load_dotenv()
     logger = configure_logger()
     session = configure_requests_session()
@@ -457,9 +481,9 @@ def main() -> None:
     # Retrieve extension, publisher, and release data
     extensions = get_all_extensions(logger, session)
     extensions_df = extract_extension_metadata(extensions)
-    publishers_df = extract_publisher_metadata(extensions)
+    publishers_df = extract_publisher_metadata(logger, extensions)
     releases = get_all_releases(logger, session, connection, extensions_df)
-    releases_df = extract_release_metadata(releases)
+    releases_df = extract_release_metadata(logger, releases)
 
     # Insert extension, publisher, and release data into the database
     upsert_publishers(logger, connection, publishers_df)

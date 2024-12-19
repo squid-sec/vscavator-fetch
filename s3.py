@@ -6,7 +6,6 @@ import os
 from logging import Logger
 from botocore.client import BaseClient
 import requests
-from packaging import version
 import psycopg2
 import pandas as pd
 
@@ -41,40 +40,24 @@ def upload_extension_to_s3(
 
     if response.status_code == 200:
         s3_key = f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
-        try:
-            s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
-            logger.info(
-                "Uploaded extension to S3: s3://%s/%s",
-                os.getenv("S3_BUCKET_NAME"), s3_key
-            )
 
-            update_query = f"""
-                UPDATE releases
-                SET uploaded_to_s3 = TRUE
-                WHERE extension_id = '{extension_id}' AND version = '{extension_version}';
-            """
-            cursor = connection.cursor()
-            cursor.execute(update_query)
-            if cursor.rowcount > 0:
-                connection.commit()
-                logger.info(
-                    "Updated uploaded_to_s3 status to TRUE for version %s of extension %s",
-                    extension_version, extension_name
-                )
-            else:
-                logger.error(
-                    "Failed to update uploaded_to_s3 status to True for version %s of extension %s",
-                    extension_version, extension_name
-                )
+        s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
+        logger.info(
+            "Uploaded extension to S3: s3://%s/%s",
+            os.getenv("S3_BUCKET_NAME"), s3_key
+        )
 
-            cursor.close()
-        except Exception as e: # pylint: disable=broad-exception-caught
-            logger.error(
-                "Error uploading extension %s version %s by publisher %s to S3: %s",
-                extension_name, extension_version, publisher_name, e
-            )
+        update_query = f"""
+            UPDATE releases
+            SET uploaded_to_s3 = TRUE
+            WHERE extension_id = '{extension_id}' AND version = '{extension_version}';
+        """
+        cursor = connection.cursor()
+        cursor.execute(update_query)
+        connection.commit()
+        cursor.close()
+
         return True
-
 
     logger.error(
         "Error downloading extension %s version %s by publisher %s from marketplace: %s",

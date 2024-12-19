@@ -68,7 +68,7 @@ def connect_to_database(
         )
         return connection
 
-    logger.critical(
+    logger.error(
         "Failed to connect to database %s on host %s",
         os.getenv("PG_DATABASE"), os.getenv("PG_HOST")
     )
@@ -90,13 +90,13 @@ def create_table(
 
     cursor = connection.cursor()
     cursor.execute(create_table_query)
-
     connection.commit()
+    cursor.close()
+
     logger.info(
         "Created %s table",
         table_name
     )
-    cursor.close()
 
 def create_all_tables(
     logger: Logger,
@@ -123,20 +123,13 @@ def upsert_data(
 
     cursor = connection.cursor()
     execute_values(cursor, upsert_data_query, data)
-
-    if cursor.rowcount > 0:
-        connection.commit()
-        logger.info(
-            "Upserted %d rows of %s data to the database",
-            len(data), table_name
-        )
-    else:
-        logger.error(
-            "Error upserting %d rows of %s data to the database: {str(e)}",
-            len(data), table_name
-        )
-
+    connection.commit()
     cursor.close()
+
+    logger.info(
+        "Upserted %d rows of %s data to the database",
+        len(data), table_name
+    )
 
 def upsert_extensions(
     logger: Logger,
@@ -376,18 +369,20 @@ def is_uploaded_to_s3(
     cursor.execute(query)
     if cursor.rowcount > 0:
         result = cursor.fetchone()
+        cursor.close()
+
         logger.info(
             "Fetched upload status for version %s of extension %s",
             extension_version, extension_id
         )
-        cursor.close()
         return result[0]
+
+    cursor.close()
 
     logger.info(
         "No S3 upload status for version %s of extension %s was found",
         extension_version, extension_id
     )
-    cursor.close()
     return False
 
 def get_old_latest_release_version(
@@ -411,16 +406,18 @@ def get_old_latest_release_version(
 
     if cursor.rowcount > 0:
         result = cursor.fetchone()
+        cursor.close()
+
         logger.info(
             "Fetched latest release version from the extensions table for extension %s",
             extension_identifier
         )
-        cursor.close()
         return result[0]
+
+    cursor.close()
 
     logger.info(
         "No latest release version from the extensions table for extension %s was found",
         extension_identifier
     )
-    cursor.close()
     return ""
