@@ -7,7 +7,6 @@ import time
 import logging
 import logging.config
 from logging import Logger
-from typing import Tuple
 import boto3
 from botocore.client import BaseClient
 import requests
@@ -19,52 +18,111 @@ import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
 
-from db import connect_to_database, create_all_tables, upsert_extensions, \
-    upsert_publishers, upsert_releases, get_old_latest_release_version, \
-    select_extensions, select_publishers, select_releases
+from db import (
+    connect_to_database,
+    create_all_tables,
+    upsert_extensions,
+    upsert_publishers,
+    upsert_releases,
+    get_old_latest_release_version,
+    select_extensions,
+    select_publishers,
+    select_releases,
+)
 from s3 import upload_all_extensions_to_s3, get_all_object_keys
 from df import combine_dataframes, object_keys_to_dataframe, verified_uploaded_to_s3
 
-EXTENSIONS_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-HEADERS = {
-    "Content-Type": "application/json",
-    "accept": "application/json;api-version=7.2-preview.1;excludeUrls=true",
-}
-EXTENSIONS_PAGE_SIZE = 2
-EXTENSIONS_LAST_PAGE_NUMBER = 2
+EXTENSIONS_URL = (
+    "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+)
+HEADERS = {"accept": "application/json;api-version=7.2-preview.1;"}
+
+EXTENSIONS_PAGE_SIZE = 80000
 RELEASES_PAGE_SIZE = 100
-REQUESTS_FAILURE_DELAY = 60
+
 REQUESTS_TIMEOUT = 10
-REQUESTS_DELAY=0.25
+REQUESTS_DELAY = 0.25
+
 DEFAULT_DATE = "1970-01-01T00:00:00"
 
-def get_extensions(
-    logger: Logger,
-    session: requests.Session,
-    page_number: int,
-    page_size: int
-) -> Tuple[list, bool]:
+SORT_BY = 2  # Title
+SORT_ORDER = 1  # Ascending
+EXTENSIONS_FLAGS = 0x100  # Include statistics
+RELEASES_FLAGS = 0x1  # Include versions
+
+
+def get_total_number_of_extensions() -> int:
+    """
+    get_total_number_of_extensions finds the total number of extensions in the marketplace
+    """
+
+    payload = {
+        "filters": [
+            {
+                "criteria": [
+                    {
+                        "filterType": 8,
+                        "value": "Microsoft.VisualStudio.Code",
+                    },
+                    {
+                        "filterType": 10,
+                        "value": 'target:"Microsoft.VisualStudio.Code"',
+                    },
+                ],
+                "pageSize": 1,
+                "pageNumber": 1,
+            },
+        ],
+        "flags": EXTENSIONS_FLAGS,
+    }
+
+    response = requests.post(EXTENSIONS_URL, headers=HEADERS, json=payload, timeout=5)
+    result_metadata = response.json()["results"][0]["resultMetadata"]
+
+    total_count = None
+    for metadata in result_metadata:
+        if metadata["metadataType"] == "ResultCount":
+            for item in metadata["metadataItems"]:
+                if item["name"] == "TotalCount":
+                    total_count = item["count"]
+                    break
+
+    return total_count
+
+
+def calculate_number_of_extension_pages(num_extensions: int) -> int:
+    """
+    calculate_number_of_extension_pages calculates the number of extension pages to fetch
+    """
+
+    return num_extensions // EXTENSIONS_PAGE_SIZE + 1
+
+
+def get_extensions(logger: Logger, session: requests.Session, page_number: int) -> list:
     """
     get_extensions fetches extension metadata from the VSCode Marketplace
     """
 
     payload = {
-        'filters': [
+        "filters": [
             {
-                'criteria': [
+                "criteria": [
                     {
-                        'filterType': 8,
-                        'value': 'Microsoft.VisualStudio.Code',
+                        "filterType": 8,
+                        "value": "Microsoft.VisualStudio.Code",
                     },
                     {
-                        'filterType': 10,
-                        'value': 'target:"Microsoft.VisualStudio.Code" ',
+                        "filterType": 10,
+                        "value": 'target:"Microsoft.VisualStudio.Code"',
                     },
                 ],
-                'pageSize': page_size,
-                'pageNumber': page_number,
+                "pageSize": EXTENSIONS_PAGE_SIZE,
+                "pageNumber": page_number,
+                "sortBy": SORT_BY,
+                "sortOrder": SORT_ORDER,
             },
         ],
+        "flags": EXTENSIONS_FLAGS,
     }
 
     response = session.post(
@@ -74,46 +132,47 @@ def get_extensions(
     if response.status_code == 200:
         extensions = response.json()["results"][0]["extensions"]
         logger.info(
-            "get_extensions: Fetched %d extensions from page number %d "
-            "with page size %d",
-            len(extensions), page_number, page_size
+            "get_extensions: Fetched %d extensions from page number %d",
+            len(extensions),
+            page_number,
         )
-        return extensions, True
+        return extensions
 
-    logger.error(
-        "get_extensions: Error fetching extensions from page number %d "
-        "with page size %d: status code %d",
-        page_number, page_size, response.status_code
+    logger.critical(
+        "get_extensions: Error fetching extensions from page number %d: "
+        "status code %d",
+        page_number,
+        response.status_code,
     )
-    return [], False
+    return []
+
 
 def get_extension_releases(
     logger: Logger,
     session: requests.Session,
     extension_identifier: str,
-    page_number: int,
-    page_size: int = 100
-) -> Tuple[dict, bool]:
+    page_number: int = 1,
+) -> dict:
     """
     get_extension_releases fetches releases metadata for a given extension from
     the VSCode Marketplace
     """
 
     json_data = {
-        'assetTypes': None,
-        'filters': [
+        "assetTypes": None,
+        "filters": [
             {
-                'criteria': [
+                "criteria": [
                     {
-                        'filterType': 7,
-                        'value': extension_identifier,
+                        "filterType": 7,
+                        "value": extension_identifier,
                     },
                 ],
-                'pageSize': page_size,
-                'pageNumber': page_number,
+                "pageSize": RELEASES_PAGE_SIZE,
+                "pageNumber": page_number,
             },
         ],
-        'flags': 2151,
+        "flags": RELEASES_FLAGS,
     }
 
     response = session.post(
@@ -121,78 +180,53 @@ def get_extension_releases(
     )
 
     if response.status_code == 200:
-        releases = response.json()["results"][0]["extensions"][0]
+        releases = response.json()["results"][0]["extensions"][0]["versions"]
         logger.info(
             "get_extension_releases: Fetched extension releases for extension %s",
-            extension_identifier
+            extension_identifier,
         )
-        return releases, True
+        return releases
 
     logger.error(
         "get_extension_releases: Error fetching release metadata for extension %s "
-        "from page number %d with page size %d: status code %d",
-        extension_identifier, page_number, page_size, response.status_code
+        "from page number %d: status code %d",
+        extension_identifier,
+        page_number,
+        response.status_code,
     )
-    return {}, False
+    return {}
+
 
 def get_all_extensions(
     logger: Logger,
     session: requests.Session,
-    page_size: int = EXTENSIONS_PAGE_SIZE,
-    last_page_number: int = EXTENSIONS_LAST_PAGE_NUMBER
+    last_page_number: int,
 ) -> list:
     """
     get_all_extensions fetches all extension metadata from the VSCode Marketplace
     """
 
     all_extensions = []
-    failed_extensions = []
 
     for page_number in range(1, last_page_number + 1):
         time.sleep(REQUESTS_DELAY)
-        extensions, success = get_extensions(logger, session, page_number, page_size)
-
+        extensions = get_extensions(logger, session, page_number)
         all_extensions.extend(extensions)
-        if not success:
-            failed_extensions.append((page_number, page_size))
-
-    if len(failed_extensions) > 0:
-        logger.warning(
-            "get_all_extensions: Failed to get %d extensions... trying again",
-            len(failed_extensions)
-        )
-
-        time.sleep(REQUESTS_FAILURE_DELAY)
-
-        for failed_page_number, failed_page_size in failed_extensions:
-            time.sleep(REQUESTS_DELAY)
-
-            extensions, success = get_extensions(
-                logger, session, failed_page_number, failed_page_size
-            )
-            all_extensions.extend(extensions)
-
-            if not success:
-                logger.error(
-                    "get_all_extensions: Failed to fetch extensions from page number "
-                    "%d with page size %d for a second time",
-                    failed_page_number, failed_page_size
-                )
 
     return all_extensions
+
 
 def get_all_releases(
     logger: Logger,
     session: requests.Session,
     connection: psycopg2.extensions.connection,
-    extensions_df: pd.DataFrame
+    extensions_df: pd.DataFrame,
 ) -> list:
     """
     get_all_releases fetches all release metadata from the VSCode Marketplace
     """
 
     all_releases = []
-    failed_extensions = []
     extension_identifiers = extensions_df["extension_identifier"].tolist()
 
     for extension_identifier in extension_identifiers:
@@ -211,64 +245,19 @@ def get_all_releases(
             logger.info(
                 "get_all_releases: Skipped fetching the releases for %s "
                 "since they have already been retrieved",
-                extension_identifier
+                extension_identifier,
             )
             continue
 
         time.sleep(REQUESTS_DELAY)
 
-        page_number = 1
-        extension_versions = [None]
-        while len(extension_versions) != 0:
-            releases, success = get_extension_releases(
-                logger, session, extension_identifier, page_number
-            )
-            all_releases.append(releases)
-
-            if not success:
-                failed_extensions.append(extension_identifier)
-                break
-
-            extension_versions = releases.get("versions", [])
-            page_number += 1
-
-    if len(failed_extensions) > 0:
-        logger.warning(
-            "get_all_releases: Failed to get the releases from %d extensions... "
-            "trying again",
-            len(failed_extensions)
-        )
-
-        time.sleep(REQUESTS_FAILURE_DELAY)
-
-        for failed_extension in failed_extensions:
-            time.sleep(REQUESTS_DELAY)
-
-            page_number = 1
-            extension_versions = [None]
-            while len(extension_versions) != 0:
-                releases, success = get_extension_releases(
-                    logger, session, failed_extension, page_number
-                )
-                all_releases.append(releases)
-
-                if not success:
-                    logger.error(
-                        "get_all_releases: Failed to fetch releases for %s "
-                        "for a second time",
-                        failed_extension
-                    )
-                    break
-
-                extension_versions = releases.get("versions", [])
-                page_number += 1
+        releases = get_extension_releases(logger, session, extension_identifier)
+        all_releases.append(releases)
 
     return all_releases
 
-def extract_publisher_metadata(
-    logger: Logger,
-    extensions: list
-) -> pd.DataFrame:
+
+def extract_publisher_metadata(logger: Logger, extensions: list) -> pd.DataFrame:
     """
     extract_publisher_metadata extracts relevant publisher information from the raw data
     """
@@ -284,56 +273,63 @@ def extract_publisher_metadata(
         if publisher_id in unique_publishers:
             logger.info(
                 "extract_publisher_metadata: Duplicate publisher found with ID %s",
-                publisher_id
+                publisher_id,
             )
             continue
         unique_publishers.add(publisher_id)
 
-        publishers_metadata.append({
-            "publisher_id": publisher_id,
-            "publisher_name": publisher_metadata["publisherName"],
-            "display_name": publisher_metadata["displayName"],
-            "flags": publisher_metadata["flags"].split(", "),
-            "domain": publisher_metadata["domain"],
-            "is_domain_verified": publisher_metadata["isDomainVerified"]
-        })
+        publishers_metadata.append(
+            {
+                "publisher_id": publisher_id,
+                "publisher_name": publisher_metadata["publisherName"],
+                "display_name": publisher_metadata["displayName"],
+                "flags": publisher_metadata["flags"].split(", "),
+                "domain": publisher_metadata["domain"],
+                "is_domain_verified": publisher_metadata["isDomainVerified"],
+            }
+        )
 
     return pd.DataFrame(publishers_metadata)
 
-def extract_extension_metadata(
-    extensions: list
-) -> pd.DataFrame:
+
+def extract_extension_metadata(extensions: list) -> pd.DataFrame:
     """
     extract_extension_metadata extracts relevant extension information from the raw data
     """
 
+    unique_extensions = set()
     extensions_metadata = []
 
     for extension in extensions:
+        extension_id = extension["extensionId"]
+        if extension_id in unique_extensions:
+            continue
+        unique_extensions.add(extension_id)
+
         extension_name = extension["extensionName"]
         publisher_name = extension["publisher"]["publisherName"]
         extension_identifier = publisher_name + "." + extension_name
 
-        extensions_metadata.append({
-            "extension_id": extension["extensionId"],
-            "extension_name": extension["extensionName"],
-            "display_name": extension["displayName"],
-            "flags": extension["flags"].split(", "),
-            "last_updated": parser.isoparse(extension["lastUpdated"]),
-            "published_date": parser.isoparse(extension["publishedDate"]),
-            "release_date": parser.isoparse(extension["releaseDate"]),
-            "short_description": extension.get("shortDescription", ""),
-            "latest_release_version": get_latest_version(extension["versions"]),
-            "publisher_id": extension["publisher"]["publisherId"],
-            "extension_identifier": extension_identifier
-        })
+        extensions_metadata.append(
+            {
+                "extension_id": extension_id,
+                "extension_name": extension["extensionName"],
+                "display_name": extension["displayName"],
+                "flags": extension["flags"].split(", "),
+                "last_updated": parser.isoparse(extension["lastUpdated"]),
+                "published_date": parser.isoparse(extension["publishedDate"]),
+                "release_date": parser.isoparse(extension["releaseDate"]),
+                "short_description": extension.get("shortDescription", ""),
+                "latest_release_version": get_latest_version(extension["versions"]),
+                "publisher_id": extension["publisher"]["publisherId"],
+                "extension_identifier": extension_identifier,
+            }
+        )
 
     return pd.DataFrame(extensions_metadata)
 
-def extract_release_metadata(
-    logger: Logger,
-    releases: list
-) -> pd.DataFrame:
+
+def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
     """
     extract_release_metadata extracts the relevant release information from the raw data
     """
@@ -355,59 +351,59 @@ def extract_release_metadata(
                 logger.info(
                     "extract_release_metadata: Duplicate extension release found "
                     "with release ID %s",
-                    release_id
+                    release_id,
                 )
                 continue
             release_ids.add(release_id)
 
-            extension_releases.append({
-                "release_id": release_id,
-                "version": extension_version,
-                "flags": rextension_release["flags"].split(", "),
-                "last_updated": parser.isoparse(rextension_release["lastUpdated"]),
-                "extension_id": extension_id,
-            })
+            extension_releases.append(
+                {
+                    "release_id": release_id,
+                    "version": extension_version,
+                    "flags": rextension_release["flags"].split(", "),
+                    "last_updated": parser.isoparse(rextension_release["lastUpdated"]),
+                    "extension_id": extension_id,
+                }
+            )
 
     return pd.DataFrame(
         extension_releases,
-        columns=["release_id", "version", "extension_id", "flags", "last_updated"]
+        columns=["release_id", "version", "extension_id", "flags", "last_updated"],
     )
 
-def get_latest_version(
-    versions: list
-) -> str:
+
+def get_latest_version(versions: list) -> str:
     """
     get_latest_version finds the most up-to-date version from a list of extension releases
     """
 
     return max(versions, key=lambda x: version.parse(x["version"]))["version"]
 
+
 def get_new_latest_release_version(
-    logger: Logger,
-    extensions_df: pd.DataFrame,
-    extension_identifier: str
+    logger: Logger, extensions_df: pd.DataFrame, extension_identifier: str
 ) -> str:
     """
     get_new_latest_release_version finds the latest release version for the given extension
     """
 
     latest_release_version = extensions_df.loc[
-        extensions_df["extension_identifier"] == extension_identifier, "latest_release_version"
+        extensions_df["extension_identifier"] == extension_identifier,
+        "latest_release_version",
     ]
 
     if latest_release_version.empty:
         logger.info(
             "get_new_latest_release_version: Failed to get new latest release version from %s",
-            extension_identifier
+            extension_identifier,
         )
         return ""
 
     return latest_release_version.iloc[-1]
 
+
 def validate_data_consistency(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-    s3_client: BaseClient
+    logger: Logger, connection: psycopg2.extensions.connection, s3_client: BaseClient
 ) -> None:
     """
     validate_data_consistency checks that the data in the database matches what exists in S3
@@ -439,9 +435,13 @@ def validate_data_consistency(
             logger.error(
                 "validate_data_consistency: Publisher %s, extension %s, version %s: "
                 "database state uploaded_to_s3: %s, while S3 state uploaded_to_s3: %s",
-                publisher_name, extension_name, extension_version, db_uploaded_to_s3,
-                s3_uploaded_to_s3
+                publisher_name,
+                extension_name,
+                extension_version,
+                db_uploaded_to_s3,
+                s3_uploaded_to_s3,
             )
+
 
 def configure_requests_session() -> requests.Session:
     """
@@ -452,7 +452,7 @@ def configure_requests_session() -> requests.Session:
         total=5,
         backoff_factor=4,
         status_forcelist=[429],
-        allowed_methods=["GET", "POST"]
+        allowed_methods=["GET", "POST"],
     )
 
     adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -461,14 +461,36 @@ def configure_requests_session() -> requests.Session:
 
     return session
 
+
 def configure_logger() -> Logger:
     """
     configure_logger configures the logger for the application
     """
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     logger = logging.getLogger(os.getenv("LOGGER_NAME"))
     return logger
+
+
+def log_constants(logger: Logger) -> None:
+    """
+    log_constants logs the constants used in the script
+    """
+
+    logger.info("log_constants: EXTENSIONS_URL: %s", EXTENSIONS_URL)
+    logger.info("log_constants: HEADERS: %s", HEADERS)
+    logger.info("log_constants: EXTENSIONS_PAGE_SIZE: %s", EXTENSIONS_PAGE_SIZE)
+    logger.info("log_constants: RELEASES_PAGE_SIZE: %s", RELEASES_PAGE_SIZE)
+    logger.info("log_constants: REQUESTS_TIMEOUT: %s", REQUESTS_TIMEOUT)
+    logger.info("log_constants: REQUESTS_DELAY: %s", REQUESTS_DELAY)
+    logger.info("log_constants: DEFAULT_DATE: %s", DEFAULT_DATE)
+    logger.info("log_constants: SORT_BY: %s", SORT_BY)
+    logger.info("log_constants: SORT_ORDER: %s", SORT_ORDER)
+    logger.info("log_constants: EXTENSIONS_FLAGS: %s", EXTENSIONS_FLAGS)
+    logger.info("log_constants: RELEASES_FLAGS: %s", RELEASES_FLAGS)
+
 
 def main() -> None:
     """
@@ -478,14 +500,19 @@ def main() -> None:
     # Setup script
     load_dotenv()
     logger = configure_logger()
+    log_constants(logger)
     session = configure_requests_session()
 
     # Setup the database
     connection = connect_to_database(logger)
     create_all_tables(logger, connection)
 
+    # Find number of pages of extensions to fetch
+    num_total_extensions = get_total_number_of_extensions()
+    num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
+
     # Retrieve extension, publisher, and release data
-    extensions = get_all_extensions(logger, session)
+    extensions = get_all_extensions(logger, session, num_extension_pages)
     extensions_df = extract_extension_metadata(extensions)
     publishers_df = extract_publisher_metadata(logger, extensions)
     releases = get_all_releases(logger, session, connection, extensions_df)
@@ -508,6 +535,7 @@ def main() -> None:
     s3_client.close()
     connection.close()
     session.close()
+
 
 if __name__ == "__main__":
     main()
