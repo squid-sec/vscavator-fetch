@@ -19,8 +19,19 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         release_date DATE NOT NULL,
         short_description TEXT NOT NULL,
         latest_release_version VARCHAR(255) NOT NULL,
+        latest_release_asset_uri TEXT NOT NULL,
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
+        github_url TEXT NOT NULL,
+        install BIGINT NOT NULL,
+        averagerating FLOAT NOT NULL,
+        ratingcount BIGINT NOT NULL,
+        trendingdaily FLOAT NOT NULL,
+        trendingmonthly FLOAT NOT NULL,
+        trendingweekly FLOAT NOT NULL,
+        updateCount BIGINT NOT NULL,
+        weightedRating FLOAT NOT NULL,
+        downloadCount BIGINT NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -144,12 +155,15 @@ def upsert_extensions(
     batch_size: int = 5000,
 ) -> None:
     """
-    upsert_extensions upserts the given extensions to the database in batches
+    upsert_extensions upserts the given extensions to the database in batches.
     """
 
     upsert_query = """
         INSERT INTO extensions (
-            extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, short_description, latest_release_version, publisher_id, extension_identifier
+            extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
+            short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
+            extension_identifier, github_url, install, averagerating, ratingcount, trendingdaily, trendingmonthly, 
+            trendingweekly, updateCount, weightedRating, downloadCount
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
             extension_name = EXCLUDED.extension_name,
@@ -160,8 +174,19 @@ def upsert_extensions(
             release_date = EXCLUDED.release_date,
             short_description = EXCLUDED.short_description,
             latest_release_version = EXCLUDED.latest_release_version,
+            latest_release_asset_uri = EXCLUDED.latest_release_asset_uri,
             publisher_id = EXCLUDED.publisher_id,
-            extension_identifier = EXCLUDED.extension_identifier;
+            extension_identifier = EXCLUDED.extension_identifier,
+            github_url = EXCLUDED.github_url,
+            install = EXCLUDED.install,
+            averagerating = EXCLUDED.averagerating,
+            ratingcount = EXCLUDED.ratingcount,
+            trendingdaily = EXCLUDED.trendingdaily,
+            trendingmonthly = EXCLUDED.trendingmonthly,
+            trendingweekly = EXCLUDED.trendingweekly,
+            updateCount = EXCLUDED.updateCount,
+            weightedRating = EXCLUDED.weightedRating,
+            downloadCount = EXCLUDED.downloadCount;
     """
 
     values = [
@@ -175,8 +200,18 @@ def upsert_extensions(
             row["release_date"],
             row["short_description"],
             row["latest_release_version"],
+            row["latest_release_asset_uri"],
             row["publisher_id"],
             row["extension_identifier"],
+            row["install"],
+            row["averagerating"],
+            row["ratingcount"],
+            row["trendingdaily"],
+            row["trendingmonthly"],
+            row["trendingweekly"],
+            row["updateCount"],
+            row["weightedRating"],
+            row["downloadCount"],
         )
         for _, row in extensions_df.iterrows()
     ]
