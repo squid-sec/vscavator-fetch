@@ -13,7 +13,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from dateutil import parser
-from packaging import version
 import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
@@ -37,7 +36,7 @@ EXTENSIONS_URL = (
 )
 HEADERS = {"accept": "application/json;api-version=7.2-preview.1;"}
 
-EXTENSIONS_PAGE_SIZE = 80000
+EXTENSIONS_PAGE_SIZE = 100
 RELEASES_PAGE_SIZE = 100
 
 REQUESTS_TIMEOUT = 10
@@ -310,6 +309,8 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
         publisher_name = extension["publisher"]["publisherName"]
         extension_identifier = publisher_name + "." + extension_name
 
+        statistics = extract_statistics(extension["statistics"])
+
         extensions_metadata.append(
             {
                 "extension_id": extension_id,
@@ -320,9 +321,19 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
                 "published_date": parser.isoparse(extension["publishedDate"]),
                 "release_date": parser.isoparse(extension["releaseDate"]),
                 "short_description": extension.get("shortDescription", ""),
-                "latest_release_version": get_latest_version(extension["versions"]),
+                "latest_release_version": extension["versions"][0]["version"],
+                "latest_release_asset_uri": extension["versions"][0]["assetUri"],
                 "publisher_id": extension["publisher"]["publisherId"],
                 "extension_identifier": extension_identifier,
+                "install": statistics["install"],
+                "averagerating": statistics["averagerating"],
+                "ratingcount": statistics["ratingcount"],
+                "trendingdaily": statistics["trendingdaily"],
+                "trendingmonthly": statistics["trendingmonthly"],
+                "trendingweekly": statistics["trendingweekly"],
+                "updateCount": statistics["updateCount"],
+                "weightedRating": statistics["weightedRating"],
+                "downloadCount": statistics["downloadCount"]
             }
         )
 
@@ -371,14 +382,30 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
         columns=["release_id", "version", "extension_id", "flags", "last_updated"],
     )
 
-
-def get_latest_version(versions: list) -> str:
+def extract_statistics(statistics: list) -> dict:
     """
-    get_latest_version finds the most up-to-date version from a list of extension releases
+    extract_statistics extracts the extension statistics
     """
 
-    return max(versions, key=lambda x: version.parse(x["version"]))["version"]
+    extension_stats = {
+        "install": 0,
+        "averagerating": 0,
+        "ratingcount": 0,
+        "trendingdaily": 0,
+        "trendingmonthly": 0,
+        "trendingweekly": 0,
+        "updateCount": 0,
+        "weightedRating": 0,
+        "downloadCount": 0
+    }
 
+    for stat in statistics:
+        name = stat['statisticName']
+        value = stat['value']
+        if name in extension_stats:
+            extension_stats[name] = value
+
+    return extension_stats
 
 def get_new_latest_release_version(
     logger: Logger, extensions_df: pd.DataFrame, extension_identifier: str
