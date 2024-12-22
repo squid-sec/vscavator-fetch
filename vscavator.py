@@ -309,6 +309,9 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
         publisher_name = extension["publisher"]["publisherName"]
         extension_identifier = publisher_name + "." + extension_name
 
+        latest_version = extension["versions"][0]
+        properties = latest_version.get("properties", {})
+        github_url = extract_github_url(properties)
         statistics = extract_statistics(extension["statistics"])
 
         extensions_metadata.append(
@@ -321,10 +324,11 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
                 "published_date": parser.isoparse(extension["publishedDate"]),
                 "release_date": parser.isoparse(extension["releaseDate"]),
                 "short_description": extension.get("shortDescription", ""),
-                "latest_release_version": extension["versions"][0]["version"],
-                "latest_release_asset_uri": extension["versions"][0]["assetUri"],
+                "latest_release_version": latest_version["version"],
+                "latest_release_asset_uri": latest_version["assetUri"],
                 "publisher_id": extension["publisher"]["publisherId"],
                 "extension_identifier": extension_identifier,
+                "github_url": github_url,
                 "install": statistics["install"],
                 "averagerating": statistics["averagerating"],
                 "ratingcount": statistics["ratingcount"],
@@ -333,7 +337,7 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
                 "trendingweekly": statistics["trendingweekly"],
                 "updateCount": statistics["updateCount"],
                 "weightedRating": statistics["weightedRating"],
-                "downloadCount": statistics["downloadCount"]
+                "downloadCount": statistics["downloadCount"],
             }
         )
 
@@ -382,9 +386,10 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
         columns=["release_id", "version", "extension_id", "flags", "last_updated"],
     )
 
+
 def extract_statistics(statistics: list) -> dict:
     """
-    extract_statistics extracts the extension statistics
+    extract_statistics finds the extension statistics
     """
 
     extension_stats = {
@@ -396,16 +401,30 @@ def extract_statistics(statistics: list) -> dict:
         "trendingweekly": 0,
         "updateCount": 0,
         "weightedRating": 0,
-        "downloadCount": 0
+        "downloadCount": 0,
     }
 
     for stat in statistics:
-        name = stat['statisticName']
-        value = stat['value']
+        name = stat["statisticName"]
+        value = stat["value"]
         if name in extension_stats:
             extension_stats[name] = value
 
     return extension_stats
+
+
+def extract_github_url(properties: list) -> str:
+    """
+    extract_github_url finds the GitHub URL of the extension
+    """
+
+    github_url = ""
+    for extension_property in properties:
+        if extension_property["key"] == "Microsoft.VisualStudio.Services.Links.GitHub":
+            github_url = extension_property["value"]
+            break
+    return github_url
+
 
 def get_new_latest_release_version(
     logger: Logger, extensions_df: pd.DataFrame, extension_identifier: str

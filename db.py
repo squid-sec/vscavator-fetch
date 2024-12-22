@@ -22,6 +22,7 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         latest_release_asset_uri TEXT NOT NULL,
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
+        github_url TEXT NOT NULL,
         install BIGINT NOT NULL,
         averagerating FLOAT NOT NULL,
         ratingcount BIGINT NOT NULL,
@@ -161,7 +162,7 @@ def upsert_extensions(
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
             short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
-            extension_identifier, install, averagerating, ratingcount, trendingdaily, trendingmonthly, 
+            extension_identifier, github_url, install, averagerating, ratingcount, trendingdaily, trendingmonthly, 
             trendingweekly, updateCount, weightedRating, downloadCount
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
@@ -176,6 +177,7 @@ def upsert_extensions(
             latest_release_asset_uri = EXCLUDED.latest_release_asset_uri,
             publisher_id = EXCLUDED.publisher_id,
             extension_identifier = EXCLUDED.extension_identifier,
+            github_url = EXCLUDED.github_url,
             install = EXCLUDED.install,
             averagerating = EXCLUDED.averagerating,
             ratingcount = EXCLUDED.ratingcount,
