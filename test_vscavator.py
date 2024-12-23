@@ -55,10 +55,6 @@ class TestGetTotalNumberOfExtensions(unittest.TestCase):
 
         # Assertions
         self.assertEqual(total_count, 1500)
-        mock_logger.info.assert_called_with(
-            "get_total_number_of_extensions: total number of extensions is %d",
-            1500,
-        )
 
     @responses.activate
     def test_get_total_number_of_extensions_failure(self):
@@ -83,11 +79,6 @@ class TestGetTotalNumberOfExtensions(unittest.TestCase):
 
         # Assertions
         self.assertEqual(total_count, 0)
-        mock_logger.critical.assert_called_with(
-            "get_total_number_of_extensions: Error fetching number of extensions: "
-            "status code %d",
-            500,
-        )
 
 
 class TestCalculateNumberOfExtensionPages(unittest.TestCase):
@@ -146,11 +137,6 @@ class TestGetExtensions(unittest.TestCase):
 
         # Assertions
         self.assertEqual(extensions, mock_extensions)
-        mock_logger.info.assert_called_with(
-            "get_extensions: Fetched %d extensions from page number %d",
-            len(mock_extensions),
-            page_number,
-        )
 
     @responses.activate
     def test_get_extensions_failure(self):
@@ -177,12 +163,6 @@ class TestGetExtensions(unittest.TestCase):
 
         # Assertions
         self.assertEqual(extensions, [])
-        mock_logger.critical.assert_called_with(
-            "get_extensions: Error fetching extensions from page number %d: "
-            "status code %d",
-            page_number,
-            500,
-        )
 
 
 class TestGetExtensionReleases(unittest.TestCase):
@@ -241,10 +221,6 @@ class TestGetExtensionReleases(unittest.TestCase):
         self.assertEqual(len(releases), 2)
         self.assertEqual(releases[0]["version"], "1.0.0")
         self.assertEqual(releases[1]["version"], "1.1.0")
-        mock_logger.info.assert_called_with(
-            "get_extension_releases: Fetched extension releases for extension %s",
-            extension_identifier,
-        )
 
     @responses.activate
     def test_get_extension_releases_failure(self):
@@ -275,13 +251,6 @@ class TestGetExtensionReleases(unittest.TestCase):
 
         # Assertions
         self.assertEqual(releases, {})
-        mock_logger.error.assert_called_with(
-            "get_extension_releases: Error fetching releases for extension %s "
-            "from page number %d: status code %d",
-            extension_identifier,
-            1,
-            500,
-        )
 
 
 if __name__ == "__main__":

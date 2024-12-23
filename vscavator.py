@@ -41,7 +41,7 @@ REVIEWS_URL = (
 )
 HEADERS = {"accept": "application/json;api-version=7.2-preview.1;"}
 
-EXTENSIONS_PAGE_SIZE = 10
+EXTENSIONS_PAGE_SIZE = 100
 RELEASES_PAGE_SIZE = 100
 
 REQUESTS_TIMEOUT = 10
@@ -549,21 +549,22 @@ def get_new_latest_release_version(
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    clean_dataframe 
+    clean_dataframe prepares the given data from to be upserted to the database
     """
 
     # Handling missing values in datetime columns by replacing NaT with None
-    for col in df.select_dtypes(include=['datetime64[ns]']):
+    for col in df.select_dtypes(include=["datetime64[ns]"]):
         df[col] = df[col].apply(lambda x: None if pd.isna(x) else x)
 
     # Remove duplicate rows
     df = df.drop_duplicates()
 
     # Strip leading and trailing spaces from string columns
-    for col in df.select_dtypes(include=['object']):
+    for col in df.select_dtypes(include=["object"]):
         df[col] = df[col].str.strip()
 
     return df
+
 
 def validate_data_consistency(
     logger: Logger,
@@ -694,10 +695,10 @@ def main() -> None:
     reviews_df = extract_review_metadata(reviews)
 
     # Clean dataframes
-    # publishers_df = clean_dataframe(publishers_df)
-    # extensions_df = clean_dataframe(extensions_df)
-    # releases_df = clean_dataframe(releases_df)
-    # reviews_df = clean_dataframe(reviews_df)
+    publishers_df = clean_dataframe(publishers_df)
+    extensions_df = clean_dataframe(extensions_df)
+    releases_df = clean_dataframe(releases_df)
+    reviews_df = clean_dataframe(reviews_df)
 
     # Insert extension, publisher, release, and review data into the database
     upsert_publishers(logger, connection, publishers_df)
