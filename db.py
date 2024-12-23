@@ -24,14 +24,14 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         extension_identifier VARCHAR(255) NOT NULL,
         github_url TEXT NOT NULL,
         install BIGINT NOT NULL,
-        averagerating FLOAT NOT NULL,
-        ratingcount BIGINT NOT NULL,
-        trendingdaily FLOAT NOT NULL,
-        trendingmonthly FLOAT NOT NULL,
-        trendingweekly FLOAT NOT NULL,
-        updateCount BIGINT NOT NULL,
-        weightedRating FLOAT NOT NULL,
-        downloadCount BIGINT NOT NULL,
+        average_rating FLOAT NOT NULL,
+        rating_count BIGINT NOT NULL,
+        trending_daily FLOAT NOT NULL,
+        trending_monthly FLOAT NOT NULL,
+        trending_weekly FLOAT NOT NULL,
+        update_count BIGINT NOT NULL,
+        weighted_rating FLOAT NOT NULL,
+        download_count BIGINT NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -53,6 +53,19 @@ CREATE_RELEASES_TABLE_QUERY = """
         last_updated DATE NOT NULL,
         flags TEXT ARRAY,
         uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
+        FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
+    );
+"""
+CREATE_REVIEWS_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS reviews (
+        review_id BIGINT PRIMARY KEY NOT NULL,
+        extension_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        user_display_name VARCHAR(255) NOT NULL,
+        updated_date DATE NOT NULL,
+        rating INT NOT NULL,
+        text TEXT NOT NULL,
+        product_version VARCHAR(255) NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -123,6 +136,7 @@ def create_all_tables(
     create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
     create_table(logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
+    create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
 
 
 def upsert_data(
@@ -162,8 +176,8 @@ def upsert_extensions(
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
             short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
-            extension_identifier, github_url, install, averagerating, ratingcount, trendingdaily, trendingmonthly, 
-            trendingweekly, updateCount, weightedRating, downloadCount
+            extension_identifier, github_url, install, average_rating, rating_count, trending_daily, trending_monthly, 
+            trending_weekly, update_count, weighted_rating, download_count
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
             extension_name = EXCLUDED.extension_name,
@@ -179,14 +193,14 @@ def upsert_extensions(
             extension_identifier = EXCLUDED.extension_identifier,
             github_url = EXCLUDED.github_url,
             install = EXCLUDED.install,
-            averagerating = EXCLUDED.averagerating,
-            ratingcount = EXCLUDED.ratingcount,
-            trendingdaily = EXCLUDED.trendingdaily,
-            trendingmonthly = EXCLUDED.trendingmonthly,
-            trendingweekly = EXCLUDED.trendingweekly,
-            updateCount = EXCLUDED.updateCount,
-            weightedRating = EXCLUDED.weightedRating,
-            downloadCount = EXCLUDED.downloadCount;
+            average_rating = EXCLUDED.average_rating,
+            rating_count = EXCLUDED.rating_count,
+            trending_daily = EXCLUDED.trending_daily,
+            trending_monthly = EXCLUDED.trending_monthly,
+            trending_weekly = EXCLUDED.trending_weekly,
+            update_count = EXCLUDED.update_count,
+            weighted_rating = EXCLUDED.weighted_rating,
+            download_count = EXCLUDED.download_count;
     """
 
     values = [
@@ -203,15 +217,16 @@ def upsert_extensions(
             row["latest_release_asset_uri"],
             row["publisher_id"],
             row["extension_identifier"],
+            row["github_url"],
             row["install"],
-            row["averagerating"],
-            row["ratingcount"],
-            row["trendingdaily"],
-            row["trendingmonthly"],
-            row["trendingweekly"],
-            row["updateCount"],
-            row["weightedRating"],
-            row["downloadCount"],
+            row["average_rating"],
+            row["rating_count"],
+            row["trending_daily"],
+            row["trending_monthly"],
+            row["trending_weekly"],
+            row["update_count"],
+            row["weighted_rating"],
+            row["download_count"],
         )
         for _, row in extensions_df.iterrows()
     ]
@@ -277,7 +292,7 @@ def upsert_releases(
     batch_size: int = 5000,
 ) -> None:
     """
-    upser_releases upserts the given releases to the database in batches
+    upsert_releases upserts the given releases to the database in batches
     """
 
     upsert_query = """
@@ -307,6 +322,54 @@ def upsert_releases(
         upsert_data(logger, connection, "releases", upsert_query, values)
         logger.info(
             "upsert_releases: Upserted releases batch %d of %d rows",
+            i // batch_size + 1,
+            len(batch),
+        )
+
+
+def upsert_reviews(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+    reviews_df: pd.DataFrame,
+    batch_size: int = 5000,
+) -> None:
+    """
+    upsert_reviews upserts the given reviews to the database in batches
+    """
+
+    upsert_query = """
+        INSERT INTO reviews (
+            review_id, extension_id, user_id, user_display_name, updated_date, rating, text, product_version
+        ) VALUES %s
+        ON CONFLICT (review_id) DO UPDATE SET
+            extension_id = EXCLUDED.extension_id,
+            user_id = EXCLUDED.user_id,
+            user_display_name = EXCLUDED.user_display_name,
+            updated_date = EXCLUDED.updated_date,
+            rating = EXCLUDED.rating,
+            text = EXCLUDED.text,
+            product_version = EXCLUDED.product_version;
+    """
+
+    values = [
+        (
+            row["review_id"],
+            row["extension_id"],
+            row["user_id"],
+            row["user_display_name"],
+            row["updated_date"],
+            row["rating"],
+            row["text"],
+            row["product_version"],
+        )
+        for _, row in reviews_df.iterrows()
+    ]
+
+    for i in range(0, len(values), batch_size):
+        batch = values[i : i + batch_size]
+        upsert_data(logger, connection, "reviews", upsert_query, values)
+        logger.info(
+            "upsert_reviews: Upserted reviews batch %d of %d rows",
             i // batch_size + 1,
             len(batch),
         )

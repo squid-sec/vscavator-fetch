@@ -2,22 +2,26 @@
 df.py contains dataframe related functions
 """
 
+from typing import List
 import pandas as pd
 
 
 def combine_dataframes(
-    extensions_df: pd.DataFrame, publishers_df: pd.DataFrame, releases_df: pd.DataFrame
+    dfs: List[pd.DataFrame], keys: List[str], how: str = "inner"
 ) -> pd.DataFrame:
     """
-    combine_dataframes merges the extensions, publishers, and releases dataframes
+    combine_dataframes is a generic function to merge multiple dataframes based on specified keys
     """
 
-    releases_extensions_df = releases_df.merge(
-        extensions_df, on="extension_id", how="inner"
-    )
-    combined_df = releases_extensions_df.merge(
-        publishers_df, on="publisher_id", how="inner"
-    )
+    if len(dfs) - 1 != len(keys):
+        raise ValueError(
+            "Number of keys must be one less than the number of dataframes."
+        )
+
+    combined_df = dfs[0]
+    for i, key in enumerate(keys):
+        combined_df = combined_df.merge(dfs[i + 1], on=key, how=how)
+
     return combined_df
 
 
