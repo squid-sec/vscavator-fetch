@@ -23,6 +23,7 @@ from db import (
     upsert_extensions,
     upsert_publishers,
     upsert_releases,
+    upsert_reviews,
     get_old_latest_release_version,
     select_extensions,
     select_publishers,
@@ -33,6 +34,10 @@ from df import combine_dataframes, object_keys_to_dataframe, verified_uploaded_t
 
 EXTENSIONS_URL = (
     "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+)
+REVIEWS_URL = (
+    "https://marketplace.visualstudio.com/_apis/public/gallery/publishers"
+    "/{publisher_name}/extensions/{extension_name}/reviews?count=100"
 )
 HEADERS = {"accept": "application/json;api-version=7.2-preview.1;"}
 
@@ -50,7 +55,7 @@ EXTENSIONS_FLAGS = 0x100  # Include statistics
 RELEASES_FLAGS = 0x1  # Include versions
 
 
-def get_total_number_of_extensions() -> int:
+def get_total_number_of_extensions(logger: Logger) -> int:
     """
     get_total_number_of_extensions finds the total number of extensions in the marketplace
     """
@@ -76,17 +81,30 @@ def get_total_number_of_extensions() -> int:
     }
 
     response = requests.post(EXTENSIONS_URL, headers=HEADERS, json=payload, timeout=5)
-    result_metadata = response.json()["results"][0]["resultMetadata"]
+    if response.status_code == 200:
+        result_metadata = response.json()["results"][0]["resultMetadata"]
 
-    total_count = None
-    for metadata in result_metadata:
-        if metadata["metadataType"] == "ResultCount":
-            for item in metadata["metadataItems"]:
-                if item["name"] == "TotalCount":
-                    total_count = item["count"]
-                    break
+        total_count = None
+        for metadata in result_metadata:
+            if metadata["metadataType"] == "ResultCount":
+                for item in metadata["metadataItems"]:
+                    if item["name"] == "TotalCount":
+                        total_count = item["count"]
+                        break
 
-    return total_count
+        logger.info(
+            "get_total_number_of_extensions: total number of extensions is %d",
+            total_count,
+        )
+
+        return total_count
+
+    logger.critical(
+        "get_total_number_of_extensions: Error fetching number of extensions: "
+        "status code %d",
+        response.status_code,
+    )
+    return 0
 
 
 def calculate_number_of_extension_pages(num_extensions: int) -> int:
@@ -187,13 +205,46 @@ def get_extension_releases(
         return releases
 
     logger.error(
-        "get_extension_releases: Error fetching release metadata for extension %s "
+        "get_extension_releases: Error fetching releases for extension %s "
         "from page number %d: status code %d",
         extension_identifier,
         page_number,
         response.status_code,
     )
     return {}
+
+
+def get_extension_reviews(
+    logger: Logger,
+    session: requests.Session,
+    publisher_name: str,
+    extension_name: str,
+) -> list:
+    """
+    get_extension_reviews fetches review metadata for a given extension from
+    the VSCode Marketplace
+    """
+
+    url = REVIEWS_URL.format(
+        publisher_name=publisher_name, extension_name=extension_name
+    )
+    response = session.get(url, headers=HEADERS, timeout=10)
+
+    if response.status_code == 200:
+        reviews = response.json()["reviews"]
+        logger.info(
+            "get_extension_reviews: Fetched extension reviews for extension %s",
+            extension_name,
+        )
+        return reviews
+
+    logger.error(
+        "get_extension_reviews: Error fetching reviews for extension %s: "
+        "status code %d",
+        extension_name,
+        response.status_code,
+    )
+    return []
 
 
 def get_all_extensions(
@@ -220,15 +271,17 @@ def get_all_releases(
     session: requests.Session,
     connection: psycopg2.extensions.connection,
     extensions_df: pd.DataFrame,
-) -> list:
+) -> dict:
     """
     get_all_releases fetches all release metadata from the VSCode Marketplace
     """
 
-    all_releases = []
-    extension_identifiers = extensions_df["extension_identifier"].tolist()
+    all_releases = {}
+    extension_data = list(
+        zip(extensions_df["extension_id"], extensions_df["extension_identifier"])
+    )
 
-    for extension_identifier in extension_identifiers:
+    for extension_id, extension_identifier in extension_data:
         # Find the latest release version in the database from the previous run
         old_latest_release_version = get_old_latest_release_version(
             logger, connection, extension_identifier
@@ -251,9 +304,31 @@ def get_all_releases(
         time.sleep(REQUESTS_DELAY)
 
         releases = get_extension_releases(logger, session, extension_identifier)
-        all_releases.append(releases)
+        all_releases[extension_id] = releases
 
     return all_releases
+
+
+def get_all_reviews(
+    logger: Logger,
+    session: requests.Session,
+    combined_df: pd.DataFrame,
+) -> dict:
+    """
+    get_all_reviews fetches all review metadata from the VSCode Marketplace
+    """
+
+    all_reviews = {}
+
+    for _, row in combined_df.iterrows():
+        extension_id = row["extension_id"]
+        publisher_name = row["publisher_name"]
+        extension_name = row["extension_name"]
+
+        reviews = get_extension_reviews(logger, session, publisher_name, extension_name)
+        all_reviews[extension_id] = reviews
+
+    return all_reviews
 
 
 def extract_publisher_metadata(logger: Logger, extensions: list) -> pd.DataFrame:
@@ -352,12 +427,11 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
     extension_releases = []
     release_ids = set()
 
-    for extension in releases:
-        extension_id = extension["extensionId"]
-        extension_versions = extension["versions"]
+    for extension_id in releases:
+        extension_releases = releases[extension_id]
 
-        for rextension_release in extension_versions:
-            extension_version = rextension_release["version"]
+        for extension_release in extension_releases:
+            extension_version = extension_release["version"]
             release_id = extension_id + "-" + extension_version
 
             # Deduplicate release data
@@ -375,8 +449,8 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
                 {
                     "release_id": release_id,
                     "version": extension_version,
-                    "flags": rextension_release["flags"].split(", "),
-                    "last_updated": parser.isoparse(rextension_release["lastUpdated"]),
+                    "flags": extension_release["flags"].split(", "),
+                    "last_updated": parser.isoparse(extension_release["lastUpdated"]),
                     "extension_id": extension_id,
                 }
             )
@@ -385,6 +459,31 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
         extension_releases,
         columns=["release_id", "version", "extension_id", "flags", "last_updated"],
     )
+
+
+def extract_review_metadata(extension_reviews: dict) -> pd.DataFrame:
+    """
+    extract_review_metadata extracts the relevant review information from the raw data
+    """
+
+    review_metadata = []
+
+    for extension_id in extension_reviews:
+        for review in extension_reviews[extension_id]:
+            review_metadata.append(
+                {
+                    "review_id": review["id"],
+                    "extension_id": extension_id,
+                    "user_id": review["userId"],
+                    "user_display_name": review["userDisplayName"],
+                    "updated_date": review["updatedDate"],
+                    "rating": review["rating"],
+                    "text": review["text"],
+                    "product_version": review["productVersion"],
+                }
+            )
+
+    return pd.DataFrame(review_metadata)
 
 
 def extract_statistics(statistics: list) -> dict:
@@ -449,7 +548,9 @@ def get_new_latest_release_version(
 
 
 def validate_data_consistency(
-    logger: Logger, connection: psycopg2.extensions.connection, s3_client: BaseClient
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+    s3_client: BaseClient,
 ) -> None:
     """
     validate_data_consistency checks that the data in the database matches what exists in S3
@@ -464,9 +565,11 @@ def validate_data_consistency(
     publishers_df = select_publishers(logger, connection)
     releases_df = select_releases(logger, connection)
 
-    combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
+    extensions_publishers_releases_df = combine_dataframes(
+        [releases_df, extensions_df, publishers_df], ["extension_id", "publisher_id"]
+    )
 
-    for _, row in combined_df.iterrows():
+    for _, row in extensions_publishers_releases_df.iterrows():
         publisher_name = row["publisher_name"]
         extension_name = row["extension_name"]
         extension_version = row["version"]
@@ -554,7 +657,7 @@ def main() -> None:
     create_all_tables(logger, connection)
 
     # Find number of pages of extensions to fetch
-    num_total_extensions = get_total_number_of_extensions()
+    num_total_extensions = get_total_number_of_extensions(logger)
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
 
     # Retrieve extension, publisher, and release data
@@ -564,15 +667,27 @@ def main() -> None:
     releases = get_all_releases(logger, session, connection, extensions_df)
     releases_df = extract_release_metadata(logger, releases)
 
-    # Insert extension, publisher, and release data into the database
+    # Retrieve extension review data
+    extensions_publishers_df = combine_dataframes(
+        [extensions_df, publishers_df], ["publisher_id"]
+    )
+    reviews = get_all_reviews(logger, session, extensions_publishers_df)
+    reviews_df = extract_review_metadata(reviews)
+
+    # Insert extension, publisher, release, and review data into the database
     upsert_publishers(logger, connection, publishers_df)
     upsert_extensions(logger, connection, extensions_df)
     upsert_releases(logger, connection, releases_df)
+    upsert_reviews(logger, connection, reviews_df)
 
     # Upload extension files to S3
     s3_client = boto3.client("s3")
-    combined_df = combine_dataframes(extensions_df, publishers_df, releases_df)
-    upload_all_extensions_to_s3(logger, session, connection, s3_client, combined_df)
+    extensions_publishers_releases_df = combine_dataframes(
+        [releases_df, extensions_df, publishers_df], ["extension_id", "publisher_id"]
+    )
+    upload_all_extensions_to_s3(
+        logger, session, connection, s3_client, extensions_publishers_releases_df
+    )
 
     # Check the consistency of data in the database and S3
     validate_data_consistency(logger, connection, s3_client)

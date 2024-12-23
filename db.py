@@ -56,6 +56,19 @@ CREATE_RELEASES_TABLE_QUERY = """
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
+CREATE_REVIEWS_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS releases (
+        review_id BIGINT PRIMARY KEY NOT NULL,
+        extension_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        user_display_name VARCHAR(255) NOT NULL,
+        updated_date DATE NOT NULL,
+        rating INT NOT NULL,
+        text TEXT NOT NULL,
+        product_version VARCHAR(255) NOT NULL,
+        FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
+    );
+"""
 
 
 def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
@@ -123,6 +136,7 @@ def create_all_tables(
     create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
     create_table(logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
+    create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
 
 
 def upsert_data(
@@ -277,7 +291,7 @@ def upsert_releases(
     batch_size: int = 5000,
 ) -> None:
     """
-    upser_releases upserts the given releases to the database in batches
+    upsert_releases upserts the given releases to the database in batches
     """
 
     upsert_query = """
@@ -307,6 +321,54 @@ def upsert_releases(
         upsert_data(logger, connection, "releases", upsert_query, values)
         logger.info(
             "upsert_releases: Upserted releases batch %d of %d rows",
+            i // batch_size + 1,
+            len(batch),
+        )
+
+
+def upsert_reviews(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+    reviews_df: pd.DataFrame,
+    batch_size: int = 5000,
+) -> None:
+    """
+    upsert_reviews upserts the given reviews to the database in batches
+    """
+
+    upsert_query = """
+        INSERT INTO reviews (
+            review_id, extension_id, user_id, user_display_name, updated_date, rating, text, product_version
+        ) VALUES %s
+        ON CONFLICT (review_id) DO UPDATE SET
+            extension_id = EXCLUDED.extension_id,
+            user_id = EXCLUDED.user_id,
+            user_display_name = EXCLUDED.user_display_name,
+            updated_date = EXCLUDED.updated_date,
+            rating = EXCLUDED.rating,
+            text = EXCLUDED.text,
+            product_version = EXCLUDED.product_version,
+    """
+
+    values = [
+        (
+            row["review_id"],
+            row["extension_id"],
+            row["user_id"],
+            row["user_display_name"],
+            row["updated_date"],
+            row["rating"],
+            row["text"],
+            row["product_version"],
+        )
+        for _, row in reviews_df.iterrows()
+    ]
+
+    for i in range(0, len(values), batch_size):
+        batch = values[i : i + batch_size]
+        upsert_data(logger, connection, "reviews", upsert_query, values)
+        logger.info(
+            "upsert_reviews: Upserted reviews batch %d of %d rows",
             i // batch_size + 1,
             len(batch),
         )
