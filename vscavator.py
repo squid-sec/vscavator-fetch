@@ -41,7 +41,7 @@ REVIEWS_URL = (
 )
 HEADERS = {"accept": "application/json;api-version=7.2-preview.1;"}
 
-EXTENSIONS_PAGE_SIZE = 100
+EXTENSIONS_PAGE_SIZE = 10
 RELEASES_PAGE_SIZE = 100
 
 REQUESTS_TIMEOUT = 10
@@ -405,14 +405,14 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
                 "extension_identifier": extension_identifier,
                 "github_url": github_url,
                 "install": statistics["install"],
-                "averagerating": statistics["averagerating"],
-                "ratingcount": statistics["ratingcount"],
-                "trendingdaily": statistics["trendingdaily"],
-                "trendingmonthly": statistics["trendingmonthly"],
-                "trendingweekly": statistics["trendingweekly"],
-                "updateCount": statistics["updateCount"],
-                "weightedRating": statistics["weightedRating"],
-                "downloadCount": statistics["downloadCount"],
+                "average_rating": statistics["averagerating"],
+                "rating_count": statistics["ratingcount"],
+                "trending_daily": statistics["trendingdaily"],
+                "trending_monthly": statistics["trendingmonthly"],
+                "trending_weekly": statistics["trendingweekly"],
+                "update_count": statistics["updateCount"],
+                "weighted_rating": statistics["weightedRating"],
+                "download_count": statistics["downloadCount"],
             }
         )
 
@@ -478,7 +478,7 @@ def extract_review_metadata(extension_reviews: dict) -> pd.DataFrame:
                     "user_display_name": review["userDisplayName"],
                     "updated_date": review["updatedDate"],
                     "rating": review["rating"],
-                    "text": review["text"],
+                    "text": review.get("text", ""),
                     "product_version": review["productVersion"],
                 }
             )
@@ -546,6 +546,24 @@ def get_new_latest_release_version(
 
     return latest_release_version.iloc[-1]
 
+
+def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    clean_dataframe 
+    """
+
+    # Handling missing values in datetime columns by replacing NaT with None
+    for col in df.select_dtypes(include=['datetime64[ns]']):
+        df[col] = df[col].apply(lambda x: None if pd.isna(x) else x)
+
+    # Remove duplicate rows
+    df = df.drop_duplicates()
+
+    # Strip leading and trailing spaces from string columns
+    for col in df.select_dtypes(include=['object']):
+        df[col] = df[col].str.strip()
+
+    return df
 
 def validate_data_consistency(
     logger: Logger,
@@ -658,6 +676,7 @@ def main() -> None:
 
     # Find number of pages of extensions to fetch
     num_total_extensions = get_total_number_of_extensions(logger)
+    num_total_extensions = 1
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
 
     # Retrieve extension, publisher, and release data
@@ -673,6 +692,12 @@ def main() -> None:
     )
     reviews = get_all_reviews(logger, session, extensions_publishers_df)
     reviews_df = extract_review_metadata(reviews)
+
+    # Clean dataframes
+    # publishers_df = clean_dataframe(publishers_df)
+    # extensions_df = clean_dataframe(extensions_df)
+    # releases_df = clean_dataframe(releases_df)
+    # reviews_df = clean_dataframe(reviews_df)
 
     # Insert extension, publisher, release, and review data into the database
     upsert_publishers(logger, connection, publishers_df)

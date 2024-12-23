@@ -24,14 +24,14 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         extension_identifier VARCHAR(255) NOT NULL,
         github_url TEXT NOT NULL,
         install BIGINT NOT NULL,
-        averagerating FLOAT NOT NULL,
-        ratingcount BIGINT NOT NULL,
-        trendingdaily FLOAT NOT NULL,
-        trendingmonthly FLOAT NOT NULL,
-        trendingweekly FLOAT NOT NULL,
-        updateCount BIGINT NOT NULL,
-        weightedRating FLOAT NOT NULL,
-        downloadCount BIGINT NOT NULL,
+        average_rating FLOAT NOT NULL,
+        rating_count BIGINT NOT NULL,
+        trending_daily FLOAT NOT NULL,
+        trending_monthly FLOAT NOT NULL,
+        trending_weekly FLOAT NOT NULL,
+        update_count BIGINT NOT NULL,
+        weighted_rating FLOAT NOT NULL,
+        download_count BIGINT NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -57,7 +57,7 @@ CREATE_RELEASES_TABLE_QUERY = """
     );
 """
 CREATE_REVIEWS_TABLE_QUERY = """
-    CREATE TABLE IF NOT EXISTS releases (
+    CREATE TABLE IF NOT EXISTS reviews (
         review_id BIGINT PRIMARY KEY NOT NULL,
         extension_id VARCHAR(255) NOT NULL,
         user_id VARCHAR(255) NOT NULL,
@@ -176,8 +176,8 @@ def upsert_extensions(
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
             short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
-            extension_identifier, github_url, install, averagerating, ratingcount, trendingdaily, trendingmonthly, 
-            trendingweekly, updateCount, weightedRating, downloadCount
+            extension_identifier, github_url, install, average_rating, rating_count, trending_daily, trending_monthly, 
+            trending_weekly, update_count, weighted_rating, download_count
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
             extension_name = EXCLUDED.extension_name,
@@ -193,14 +193,14 @@ def upsert_extensions(
             extension_identifier = EXCLUDED.extension_identifier,
             github_url = EXCLUDED.github_url,
             install = EXCLUDED.install,
-            averagerating = EXCLUDED.averagerating,
-            ratingcount = EXCLUDED.ratingcount,
-            trendingdaily = EXCLUDED.trendingdaily,
-            trendingmonthly = EXCLUDED.trendingmonthly,
-            trendingweekly = EXCLUDED.trendingweekly,
-            updateCount = EXCLUDED.updateCount,
-            weightedRating = EXCLUDED.weightedRating,
-            downloadCount = EXCLUDED.downloadCount;
+            average_rating = EXCLUDED.average_rating,
+            rating_count = EXCLUDED.rating_count,
+            trending_daily = EXCLUDED.trending_daily,
+            trending_monthly = EXCLUDED.trending_monthly,
+            trending_weekly = EXCLUDED.trending_weekly,
+            update_count = EXCLUDED.update_count,
+            weighted_rating = EXCLUDED.weighted_rating,
+            download_count = EXCLUDED.download_count;
     """
 
     values = [
@@ -217,15 +217,16 @@ def upsert_extensions(
             row["latest_release_asset_uri"],
             row["publisher_id"],
             row["extension_identifier"],
+            row["github_url"],
             row["install"],
-            row["averagerating"],
-            row["ratingcount"],
-            row["trendingdaily"],
-            row["trendingmonthly"],
-            row["trendingweekly"],
-            row["updateCount"],
-            row["weightedRating"],
-            row["downloadCount"],
+            row["average_rating"],
+            row["rating_count"],
+            row["trending_daily"],
+            row["trending_monthly"],
+            row["trending_weekly"],
+            row["update_count"],
+            row["weighted_rating"],
+            row["download_count"],
         )
         for _, row in extensions_df.iterrows()
     ]
@@ -347,7 +348,7 @@ def upsert_reviews(
             updated_date = EXCLUDED.updated_date,
             rating = EXCLUDED.rating,
             text = EXCLUDED.text,
-            product_version = EXCLUDED.product_version,
+            product_version = EXCLUDED.product_version;
     """
 
     values = [
