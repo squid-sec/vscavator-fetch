@@ -1,26 +1,26 @@
 """
-s3.py contains S3 related functions
+TODO
 """
 
 import os
 from logging import Logger
+import boto3
 from botocore.client import BaseClient
 import requests
 import psycopg2
 import pandas as pd
 
-from db import is_uploaded_to_s3
-
-DOWNLOAD_URL = (
-    "https://marketplace.visualstudio.com/_apis/public/gallery/"
-    "publishers/{publisher}/vsextensions/{name}/{version}/vspackage"
+from util import (
+    connect_to_database,
+    combine_dataframes,
+    select_extensions,
+    select_publishers,
+    select_latest_releases,
 )
-REQUESTS_TIMEOUT = 10
 
 
 def upload_extension_to_s3(
     logger: Logger,
-    session: requests.Session,
     connection: psycopg2.extensions.connection,
     s3_client: BaseClient,
     extension_info: dict,
@@ -35,11 +35,12 @@ def upload_extension_to_s3(
     extension_version = extension_info["extension_version"]
     extension_id = extension_info["extension_id"]
 
-    url = DOWNLOAD_URL.format(
-        publisher=publisher_name, name=extension_name, version=extension_version
+    response = requests.get(
+        f"https://marketplace.visualstudio.com/_apis/public/gallery/publishers/"
+        f"{publisher_name}/vsextensions/{extension_name}/{extension_version}/vspackage",
+        stream=True,
+        timeout=5,
     )
-
-    response = session.get(url, stream=True, timeout=REQUESTS_TIMEOUT)
 
     if response.status_code == 200:
         s3_key = (
@@ -78,7 +79,6 @@ def upload_extension_to_s3(
 
 def upload_all_extensions_to_s3(
     logger: Logger,
-    session: requests.Session,
     connection: psycopg2.extensions.connection,
     s3_client: BaseClient,
     combined_df: pd.DataFrame,
@@ -87,22 +87,15 @@ def upload_all_extensions_to_s3(
     upload_all_extensions_to_s3 fetches and uploads the given extensions to S3
     """
 
-    unique_extensions = set()
-    failed_extensions = []
-
     for _, row in combined_df.iterrows():
-        # Only fetch the latest release of an extension
         extension_id = row["extension_id"]
-        if extension_id in unique_extensions:
-            continue
-        unique_extensions.add(extension_id)
-
-        publisher_name = row["publisher_name"]
         extension_name = row["extension_name"]
+        publisher_name = row["publisher_name"]
         extension_version = row["version"]
+        is_uploaded_to_s3 = row["uploaded_to_s3"]
 
         # Check if extension version has already been uploaded to S3
-        if is_uploaded_to_s3(logger, connection, extension_id, extension_version):
+        if is_uploaded_to_s3:
             logger.info(
                 "upload_all_extensions_to_s3: Skipped uploading version %s of extension %s "
                 "to S3 since it has already been uploaded",
@@ -118,56 +111,33 @@ def upload_all_extensions_to_s3(
             "extension_version": extension_version,
         }
 
-        success = upload_extension_to_s3(
-            logger, session, connection, s3_client, extension_info
-        )
+        success = upload_extension_to_s3(logger, connection, s3_client, extension_info)
 
         if not success:
-            failed_extensions.append(
-                (extension_id, publisher_name, extension_name, extension_version)
+            logger.error(
+                "upload_all_extensions_to_s3: Failed to upload extension %s version %s by %s "
+                "to S3",
+                extension_name,
+                extension_version,
+                publisher_name,
             )
 
-    if len(failed_extensions) > 0:
-        logger.warning(
-            "upload_all_extensions_to_s3: Failed to upload %d extensions to S3... trying again",
-            len(failed_extensions),
-        )
 
-        for (
-            extension_id,
-            publisher_name,
-            extension_name,
-            extension_version,
-        ) in failed_extensions:
-            extension_info = {
-                "extension_id": extension_id,
-                "publisher_name": publisher_name,
-                "extension_name": extension_name,
-                "extension_version": extension_version,
-            }
-
-            success = upload_extension_to_s3(
-                logger, session, connection, s3_client, extension_info
-            )
-
-            if not success:
-                logger.error(
-                    "upload_all_extensions_to_s3: Failed to upload extension %s version %s by %s "
-                    "to S3 for a second time",
-                    extension_name,
-                    extension_version,
-                    publisher_name,
-                )
-
-
-def get_all_object_keys(s3_client: BaseClient) -> list:
+def upload_releases(logger: Logger):
     """
-    get_all_object_keys retrieves all object key names from the bucket
+    TODO
     """
 
-    paginator = s3_client.get_paginator("list_objects_v2")
-    return [
-        s3_object["Key"]
-        for page in paginator.paginate(Bucket=os.getenv("S3_BUCKET_NAME"))
-        for s3_object in page["Contents"]
-    ]
+    s3_client = boto3.client("s3")
+    connection = connect_to_database(logger)
+    extensions_df = select_extensions(logger, connection)
+    publishers_df = select_publishers(logger, connection)
+    releases_df = select_latest_releases(logger, connection)
+    extensions_publishers_releases_df = combine_dataframes(
+        [releases_df, extensions_df, publishers_df], ["extension_id", "publisher_id"]
+    )
+    upload_all_extensions_to_s3(
+        logger, connection, s3_client, extensions_publishers_releases_df
+    )
+    connection.close()
+    s3_client.close()

@@ -5,14 +5,13 @@ test_vscavator.py
 import unittest
 from unittest.mock import MagicMock
 import responses
-import requests
 
-from vscavator import (
+from fetch_extensions import (
     get_total_number_of_extensions,
     calculate_number_of_extension_pages,
     get_extensions,
-    get_extension_releases,
 )
+from fetch_releases import get_extension_releases
 
 
 class TestGetTotalNumberOfExtensions(unittest.TestCase):
@@ -116,9 +115,8 @@ class TestGetExtensions(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mocking the logger and session
+        # Mocking the logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API response
         mock_extensions = [{"id": "ext1"}, {"id": "ext2"}]
@@ -133,7 +131,7 @@ class TestGetExtensions(unittest.TestCase):
 
         # Call the function
         page_number = 1
-        extensions = get_extensions(mock_logger, mock_session, page_number)
+        extensions = get_extensions(mock_logger, page_number)
 
         # Assertions
         self.assertEqual(extensions, mock_extensions)
@@ -146,9 +144,8 @@ class TestGetExtensions(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mocking the logger and session
+        # Mocking the logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API failure response
         responses.add(
@@ -159,7 +156,7 @@ class TestGetExtensions(unittest.TestCase):
 
         # Call the function
         page_number = 1
-        extensions = get_extensions(mock_logger, mock_session, page_number)
+        extensions = get_extensions(mock_logger, page_number)
 
         # Assertions
         self.assertEqual(extensions, [])
@@ -176,9 +173,8 @@ class TestGetExtensionReleases(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mock logger and session
+        # Mock logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API response
         extension_identifier = "publisher.extension"
@@ -213,7 +209,6 @@ class TestGetExtensionReleases(unittest.TestCase):
         # Call the function
         releases = get_extension_releases(
             logger=mock_logger,
-            session=mock_session,
             extension_identifier=extension_identifier,
         )
 
@@ -230,9 +225,8 @@ class TestGetExtensionReleases(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mock logger and session
+        # Mock logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API failure response
         extension_identifier = "publisher.extension"
@@ -245,7 +239,6 @@ class TestGetExtensionReleases(unittest.TestCase):
         # Call the function
         releases = get_extension_releases(
             logger=mock_logger,
-            session=mock_session,
             extension_identifier=extension_identifier,
         )
 
