@@ -7,13 +7,12 @@ from unittest.mock import MagicMock
 import responses
 import requests
 
-from vscavator import (
+from fetch_extensions import (
     get_total_number_of_extensions,
     calculate_number_of_extension_pages,
     get_extensions,
-    get_extension_releases,
 )
-
+from fetch_releases import get_extension_releases
 
 class TestGetTotalNumberOfExtensions(unittest.TestCase):
     """TODO"""
@@ -176,9 +175,8 @@ class TestGetExtensionReleases(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mock logger and session
+        # Mock logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API response
         extension_identifier = "publisher.extension"
@@ -213,7 +211,6 @@ class TestGetExtensionReleases(unittest.TestCase):
         # Call the function
         releases = get_extension_releases(
             logger=mock_logger,
-            session=mock_session,
             extension_identifier=extension_identifier,
         )
 
@@ -230,9 +227,8 @@ class TestGetExtensionReleases(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mock logger and session
+        # Mock logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API failure response
         extension_identifier = "publisher.extension"
@@ -245,7 +241,6 @@ class TestGetExtensionReleases(unittest.TestCase):
         # Call the function
         releases = get_extension_releases(
             logger=mock_logger,
-            session=mock_session,
             extension_identifier=extension_identifier,
         )
 
