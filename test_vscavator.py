@@ -5,7 +5,6 @@ test_vscavator.py
 import unittest
 from unittest.mock import MagicMock
 import responses
-import requests
 
 from fetch_extensions import (
     get_total_number_of_extensions,
@@ -116,9 +115,8 @@ class TestGetExtensions(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mocking the logger and session
+        # Mocking the logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API response
         mock_extensions = [{"id": "ext1"}, {"id": "ext2"}]
@@ -133,7 +131,7 @@ class TestGetExtensions(unittest.TestCase):
 
         # Call the function
         page_number = 1
-        extensions = get_extensions(mock_logger, mock_session, page_number)
+        extensions = get_extensions(mock_logger, page_number)
 
         # Assertions
         self.assertEqual(extensions, mock_extensions)
@@ -146,9 +144,8 @@ class TestGetExtensions(unittest.TestCase):
             "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
         )
 
-        # Mocking the logger and session
+        # Mocking the logger
         mock_logger = MagicMock()
-        mock_session = requests.Session()
 
         # Mock API failure response
         responses.add(
@@ -159,7 +156,7 @@ class TestGetExtensions(unittest.TestCase):
 
         # Call the function
         page_number = 1
-        extensions = get_extensions(mock_logger, mock_session, page_number)
+        extensions = get_extensions(mock_logger, page_number)
 
         # Assertions
         self.assertEqual(extensions, [])
