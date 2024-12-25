@@ -14,6 +14,7 @@ from fetch_extensions import (
 )
 from fetch_releases import get_extension_releases
 
+
 class TestGetTotalNumberOfExtensions(unittest.TestCase):
     """TODO"""
 

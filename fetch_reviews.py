@@ -12,7 +12,8 @@ from util import (
     clean_dataframe,
     connect_to_database,
     combine_dataframes,
-    select_data,
+    select_extensions,
+    select_publishers,
 )
 
 
@@ -142,41 +143,6 @@ def upsert_reviews(
             i // batch_size + 1,
             len(batch),
         )
-
-
-def select_extensions(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_extensions retrieves all extensions from the database in chunks
-    """
-
-    query = """
-        SELECT
-            extension_id
-        FROM
-            extensions;
-    """
-    return select_data(logger, connection, "extensions", query)
-
-
-def select_publishers(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_publishers retrieves all publishers from the database in chunks
-    """
-
-    query = """
-        SELECT
-            publisher_id,
-            publisher_name
-        FROM
-            publishers;
-    """
-    return select_data(logger, connection, "publishers", query)
 
 
 def fetch_reviews(logger: Logger):

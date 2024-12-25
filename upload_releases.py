@@ -10,7 +10,13 @@ import requests
 import psycopg2
 import pandas as pd
 
-from util import connect_to_database, combine_dataframes, select_data
+from util import (
+    connect_to_database,
+    combine_dataframes,
+    select_extensions,
+    select_publishers,
+    select_latest_releases,
+)
 
 
 def upload_extension_to_s3(
@@ -117,74 +123,6 @@ def upload_all_extensions_to_s3(
             )
 
 
-def select_extensions(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_extensions retrieves all extension IDs and names from the database in chunks
-    """
-
-    query = """
-        SELECT
-            extension_id,
-            extension_name
-        FROM
-            extensions;
-    """
-    return select_data(logger, connection, "extensions", query)
-
-
-def select_publishers(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_publishers retrieves all publishers from the database in chunks
-    """
-
-    query = """
-        SELECT
-            publisher_id,
-            publisher_name
-        FROM
-            publishers;
-    """
-    return select_data(logger, connection, "publishers", query)
-
-
-def select_releases(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_releases retrieves the latest releases for each extension from the database in chunks
-    """
-
-    query = """
-        WITH ranked_releases AS (
-            SELECT
-                extension_id,
-                version,
-                ROW_NUMBER() OVER (
-                    PARTITION BY extension_id 
-                    ORDER BY
-                        string_to_array(version, '.')::int[] DESC
-                ) AS row_num
-            FROM releases
-        )
-        SELECT
-            extension_id,
-            version,
-            uploaded_to_s3
-        FROM
-            ranked_releases
-        WHERE
-            row_num = 1;
-    """
-    return select_data(logger, connection, "releases", query)
-
-
 def upload_releases(logger: Logger):
     """
     TODO
@@ -194,7 +132,7 @@ def upload_releases(logger: Logger):
     connection = connect_to_database(logger)
     extensions_df = select_extensions(logger, connection)
     publishers_df = select_publishers(logger, connection)
-    releases_df = select_releases(logger, connection)
+    releases_df = select_latest_releases(logger, connection)
     extensions_publishers_releases_df = combine_dataframes(
         [releases_df, extensions_df, publishers_df], ["extension_id", "publisher_id"]
     )

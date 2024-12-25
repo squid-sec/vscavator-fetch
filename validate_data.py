@@ -9,7 +9,13 @@ import boto3
 import pandas as pd
 import psycopg2
 
-from util import connect_to_database, select_data, combine_dataframes
+from util import (
+    connect_to_database,
+    select_data,
+    combine_dataframes,
+    select_extensions,
+    select_publishers,
+)
 
 
 def get_all_object_keys(s3_client: BaseClient) -> list:
@@ -59,42 +65,6 @@ def verified_uploaded_to_s3(
         & (object_keys_df["extension_name"] == extension_name)
         & (object_keys_df["version"] == version)
     ].empty
-
-
-def select_extensions(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_extensions retrieves all extension IDs and names from the database in chunks
-    """
-
-    query = """
-        SELECT
-            extension_id,
-            extension_name
-        FROM
-            extensions;
-    """
-    return select_data(logger, connection, "extensions", query)
-
-
-def select_publishers(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_publishers retrieves all publishers from the database in chunks
-    """
-
-    query = """
-        SELECT
-            publisher_id,
-            publisher_name
-        FROM
-            publishers;
-    """
-    return select_data(logger, connection, "publishers", query)
 
 
 def select_releases(
@@ -158,6 +128,6 @@ def validate_data(
                 db_uploaded_to_s3,
                 s3_uploaded_to_s3,
             )
-    
+
     connection.close()
     s3_client.close()

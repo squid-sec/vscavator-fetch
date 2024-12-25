@@ -9,7 +9,13 @@ import pandas as pd
 import psycopg2
 from dateutil import parser
 
-from util import upsert_data, clean_dataframe, connect_to_database, select_data
+from util import (
+    upsert_data,
+    clean_dataframe,
+    connect_to_database,
+    select_extensions,
+    select_latest_releases,
+)
 
 
 def get_extension_releases(
@@ -187,56 +193,6 @@ def upsert_releases(
         )
 
 
-def select_extensions(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_extensions retrieves all extensions from the database in chunks
-    """
-
-    query = """
-        SELECT
-            extension_id,
-            extension_identifier,
-            latest_release_version
-        FROM
-            extensions;
-    """
-    return select_data(logger, connection, "extensions", query)
-
-
-def select_releases(
-    logger: Logger,
-    connection: psycopg2.extensions.connection,
-) -> pd.DataFrame:
-    """
-    select_releases retrieves the latest releases for each extension from the database in chunks
-    """
-
-    query = """
-        WITH ranked_releases AS (
-            SELECT
-                extension_id,
-                version,
-                ROW_NUMBER() OVER (
-                    PARTITION BY extension_id 
-                    ORDER BY
-                        string_to_array(version, '.')::int[] DESC
-                ) AS row_num
-            FROM releases
-        )
-        SELECT
-            extension_id,
-            version
-        FROM
-            ranked_releases
-        WHERE
-            row_num = 1;
-    """
-    return select_data(logger, connection, "releases", query)
-
-
 def fetch_releases(logger: Logger):
     """
     TODO
@@ -244,7 +200,7 @@ def fetch_releases(logger: Logger):
 
     connection = connect_to_database(logger)
     extensions_df = select_extensions(logger, connection)
-    releases_df = select_releases(logger, connection)
+    releases_df = select_latest_releases(logger, connection)
     releases = get_all_releases(logger, extensions_df, releases_df)
     releases_df = extract_release_metadata(logger, releases)
     releases_df = clean_dataframe(releases_df)

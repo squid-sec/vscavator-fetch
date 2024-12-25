@@ -119,3 +119,72 @@ def combine_dataframes(
         combined_df = combined_df.merge(dataframes[i + 1], on=key, how=how)
 
     return combined_df
+
+
+def select_extensions(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    select_extensions retrieves all extensions from the database in chunks
+    """
+
+    query = """
+        SELECT
+            extension_id,
+            extension_identifier,
+            latest_release_version
+        FROM
+            extensions;
+    """
+    return select_data(logger, connection, "extensions", query)
+
+
+def select_publishers(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    select_publishers retrieves all publishers from the database in chunks
+    """
+
+    query = """
+        SELECT
+            publisher_id,
+            publisher_name
+        FROM
+            publishers;
+    """
+    return select_data(logger, connection, "publishers", query)
+
+
+def select_latest_releases(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+) -> pd.DataFrame:
+    """
+    select_releases retrieves the latest releases for each extension from the database in chunks
+    """
+
+    query = """
+        WITH ranked_releases AS (
+            SELECT
+                extension_id,
+                version,
+                ROW_NUMBER() OVER (
+                    PARTITION BY extension_id 
+                    ORDER BY
+                        string_to_array(version, '.')::int[] DESC
+                ) AS row_num
+            FROM releases
+        )
+        SELECT
+            extension_id,
+            version,
+            uploaded_to_s3
+        FROM
+            ranked_releases
+        WHERE
+            row_num = 1;
+    """
+    return select_data(logger, connection, "releases", query)
