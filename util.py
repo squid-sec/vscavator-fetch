@@ -134,6 +134,8 @@ def select_extensions(
         SELECT
             extension_id,
             extension_identifier,
+            extension_name,
+            publisher_id,
             latest_release_version
         FROM
             extensions;
@@ -172,6 +174,7 @@ def select_latest_releases(
             SELECT
                 extension_id,
                 version,
+                uploaded_to_s3,
                 ROW_NUMBER() OVER (
                     PARTITION BY extension_id 
                     ORDER BY
