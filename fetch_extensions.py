@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Fetches extensions and publishers from the VSCode Marketplace"""
 
 import time
 from logging import Logger
@@ -13,9 +11,7 @@ from util import upsert_data, clean_dataframe, connect_to_database
 
 
 def get_total_number_of_extensions(logger: Logger) -> int:
-    """
-    get_total_number_of_extensions finds the total number of extensions in the marketplace
-    """
+    """Finds the total number of extensions in the marketplace"""
 
     payload = {
         "filters": [
@@ -34,7 +30,7 @@ def get_total_number_of_extensions(logger: Logger) -> int:
                 "pageNumber": 1,
             },
         ],
-        "flags": 0x100,  # Include statistics
+        "flags": 0x100, # Include statistics
     }
 
     response = requests.post(
@@ -72,9 +68,7 @@ def get_total_number_of_extensions(logger: Logger) -> int:
 def calculate_number_of_extension_pages(
     num_extensions: int, extensions_page_size: int = 100
 ) -> int:
-    """
-    calculate_number_of_extension_pages calculates the number of extension pages to fetch
-    """
+    """Calculates the number of extension pages to fetch"""
 
     return num_extensions // extensions_page_size + 1
 
@@ -84,9 +78,7 @@ def get_extensions(
     page_number: int,
     extensions_page_size: int = 100,
 ) -> list:
-    """
-    get_extensions fetches extension metadata from the VSCode Marketplace
-    """
+    """Fetches extension metadata from the VSCode Marketplace"""
 
     payload = {
         "filters": [
@@ -103,11 +95,11 @@ def get_extensions(
                 ],
                 "pageSize": extensions_page_size,
                 "pageNumber": page_number,
-                "sortBy": 2,  # Title
-                "sortOrder": 1,  # Ascending
+                "sortBy": 2, # Title
+                "sortOrder": 1, # Ascending
             },
         ],
-        "flags": 0x100,  # Include statistics
+        "flags": 0x100, # Include statistics
     }
 
     response = requests.post(
@@ -139,9 +131,7 @@ def get_all_extensions(
     logger: Logger,
     last_page_number: int,
 ) -> list:
-    """
-    get_all_extensions fetches all extension metadata from the VSCode Marketplace
-    """
+    """Fetches all extension metadata from the VSCode Marketplace"""
 
     all_extensions = []
 
@@ -154,9 +144,7 @@ def get_all_extensions(
 
 
 def extract_extension_metadata(extensions: list) -> pd.DataFrame:
-    """
-    extract_extension_metadata extracts relevant extension information from the raw data
-    """
+    """Extracts relevant extension information from the raw data"""
 
     unique_extensions = set()
     extensions_metadata = []
@@ -207,9 +195,7 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
 
 
 def extract_publisher_metadata(extensions: list) -> pd.DataFrame:
-    """
-    extract_publisher_metadata extracts relevant publisher information from the raw data
-    """
+    """Extracts relevant publisher information from the raw data"""
 
     publishers_metadata = []
     unique_publishers = set()
@@ -238,9 +224,7 @@ def extract_publisher_metadata(extensions: list) -> pd.DataFrame:
 
 
 def extract_extension_statistics(statistics: list) -> dict:
-    """
-    extract_extension_statistics finds the extension statistics
-    """
+    """Finds the extension statistics"""
 
     extension_stats = {
         "install": 0,
@@ -264,9 +248,7 @@ def extract_extension_statistics(statistics: list) -> dict:
 
 
 def extract_extension_github_url(properties: list) -> str:
-    """
-    extract_extension_github_url finds the GitHub URL of the extension
-    """
+    """Finds the GitHub URL of the extension"""
 
     github_url = ""
     for extension_property in properties:
@@ -282,9 +264,7 @@ def upsert_extensions(
     extensions_df: pd.DataFrame,
     batch_size: int = 5000,
 ) -> None:
-    """
-    upsert_extensions upserts the given extensions to the database in batches.
-    """
+    """Upserts the given extensions to the database in batches"""
 
     upsert_query = """
         INSERT INTO extensions (
@@ -361,9 +341,7 @@ def upsert_publishers(
     publishers_df: pd.DataFrame,
     batch_size: int = 5000,
 ) -> None:
-    """
-    upsert_publishers upserts the given publishers to the database in batches
-    """
+    """Upserts the given publishers to the database in batches"""
 
     upsert_query = """
         INSERT INTO publishers (
@@ -400,23 +378,25 @@ def upsert_publishers(
 
 
 def fetch_extensions_and_publishers(logger: Logger):
-    """
-    fetch_extensions_and_publishers
-    """
+    """Orchestrates the retrieval of extension and publisher data"""
 
+    # Setup
     connection = connect_to_database(logger)
 
+    # Scope extension retrieval
     num_total_extensions = get_total_number_of_extensions(logger)
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
 
+    # Fetch data from VSCode Marketplace
     extensions = get_all_extensions(logger, num_extension_pages)
     extensions_df = extract_extension_metadata(extensions)
     publishers_df = extract_publisher_metadata(extensions)
 
+    # Upsert retrieved data to the database
     publishers_df = clean_dataframe(publishers_df)
     extensions_df = clean_dataframe(extensions_df)
-
     upsert_publishers(logger, connection, publishers_df)
     upsert_extensions(logger, connection, extensions_df)
 
+    # Close
     connection.close()

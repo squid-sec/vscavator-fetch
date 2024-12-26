@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Contains helper functions"""
 
 import os
 from typing import List
@@ -8,13 +6,10 @@ from logging import Logger
 import psycopg2
 from psycopg2.extras import execute_values
 import pandas as pd
-import responses
 
 
 def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
-    """
-    connect_to_database establishes a connection to the SQL database
-    """
+    """Establishes a connection to the SQL database"""
 
     connection = psycopg2.connect(
         dbname=os.getenv("PG_DATABASE"),
@@ -48,9 +43,7 @@ def upsert_data(
     upsert_data_query: str,
     data: list,
 ) -> None:
-    """
-    upsert_data executes the upsert data query with the given data on the given table
-    """
+    """Executes the upsert data query with the given data on the given table"""
 
     cursor = connection.cursor()
     execute_values(cursor, upsert_data_query, data)
@@ -70,9 +63,7 @@ def select_data(
     table_name: str,
     select_data_query: str,
 ) -> pd.DataFrame:
-    """
-    select_data executes the select data query on the given table
-    """
+    """Executes the select data query on the given table"""
 
     chunks = []
     for chunk in pd.read_sql_query(select_data_query, connection, chunksize=10000):
@@ -85,9 +76,7 @@ def select_data(
 
 
 def clean_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """
-    clean_dataframe prepares the given data from to be upserted to the database
-    """
+    """Prepares the given dataframe to be upserted to the database"""
 
     # Handling missing values in datetime columns by replacing NaT with None
     for col in dataframe.select_dtypes(include=["datetime64[ns]"]):
@@ -106,9 +95,7 @@ def clean_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 def combine_dataframes(
     dataframes: List[pd.DataFrame], keys: List[str], how: str = "inner"
 ) -> pd.DataFrame:
-    """
-    combine_dataframes is a generic function to merge multiple dataframes based on specified keys
-    """
+    """Generic function to merge multiple dataframes based on the specified keys"""
 
     if len(dataframes) - 1 != len(keys):
         raise ValueError(
@@ -126,9 +113,7 @@ def select_extensions(
     logger: Logger,
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
-    """
-    select_extensions retrieves all extensions from the database in chunks
-    """
+    """Retrieves all extensions from the database"""
 
     query = """
         SELECT
@@ -147,9 +132,7 @@ def select_publishers(
     logger: Logger,
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
-    """
-    select_publishers retrieves all publishers from the database in chunks
-    """
+    """Retrieves all publishers from the database"""
 
     query = """
         SELECT
@@ -165,9 +148,7 @@ def select_latest_releases(
     logger: Logger,
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
-    """
-    select_releases retrieves the latest releases for each extension from the database in chunks
-    """
+    """Retrieves the latest releases for each extension from the database"""
 
     query = """
         WITH ranked_releases AS (
@@ -192,15 +173,3 @@ def select_latest_releases(
             row_num = 1;
     """
     return select_data(logger, connection, "releases", query)
-
-
-def add_mock_response(url, mock_response, status=200):
-    """
-    Utility to add a mocked API response to the responses library.
-    """
-    responses.add(
-        responses.POST,
-        url,
-        json=mock_response,
-        status=status,
-    )

@@ -1,7 +1,7 @@
-"""
-db.py contains database related functions
-"""
+"""Setup scripts"""
 
+import os
+import logging
 from logging import Logger
 import psycopg2
 
@@ -76,9 +76,7 @@ def create_table(
     table_name: str,
     create_table_query: str,
 ) -> None:
-    """
-    create_table executes the create table query for the given table
-    """
+    """Executes the create table query for the given table"""
 
     if connection is None:
         logger.error(
@@ -96,9 +94,7 @@ def create_table(
 
 
 def setup_db(logger: Logger) -> None:
-    """
-    setup_db creates the publishers, extensions, releases, and reviews tables
-    """
+    """Creates the publishers, extensions, releases, and reviews tables"""
 
     connection = connect_to_database(logger)
     create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
@@ -106,3 +102,13 @@ def setup_db(logger: Logger) -> None:
     create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
     create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
     connection.close()
+
+
+def configure_logger() -> Logger:
+    """Configures the logger for the application"""
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
+    logger = logging.getLogger(os.getenv("LOGGER_NAME"))
+    return logger

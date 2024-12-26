@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Fetches extension reviews from the VSCode Marketplace"""
 
 from logging import Logger
 import requests
@@ -22,10 +20,7 @@ def get_extension_reviews(
     publisher_name: str,
     extension_name: str,
 ) -> list:
-    """
-    get_extension_reviews fetches review metadata for a given extension from
-    the VSCode Marketplace
-    """
+    """Fetches review metadata for a given extension from the VSCode Marketplace"""
 
     response = requests.get(
         f"https://marketplace.visualstudio.com/_apis/public/gallery/"
@@ -55,9 +50,7 @@ def get_all_reviews(
     logger: Logger,
     combined_df: pd.DataFrame,
 ) -> dict:
-    """
-    get_all_reviews fetches all review metadata from the VSCode Marketplace
-    """
+    """Fetches all review metadata from the VSCode Marketplace"""
 
     all_reviews = {}
 
@@ -73,9 +66,7 @@ def get_all_reviews(
 
 
 def extract_review_metadata(extension_reviews: dict) -> pd.DataFrame:
-    """
-    extract_review_metadata extracts the relevant review information from the raw data
-    """
+    """Extracts the relevant review information from the given raw data"""
 
     review_metadata = []
 
@@ -103,9 +94,7 @@ def upsert_reviews(
     reviews_df: pd.DataFrame,
     batch_size: int = 5000,
 ) -> None:
-    """
-    upsert_reviews upserts the given reviews to the database in batches
-    """
+    """Upserts the given reviews to the database in batches"""
 
     upsert_query = """
         INSERT INTO reviews (
@@ -146,20 +135,25 @@ def upsert_reviews(
 
 
 def fetch_reviews(logger: Logger):
-    """
-    TODO
-    """
+    """Orchestrates the retrieval of extension review data"""
 
+    # Setup
     connection = connect_to_database(logger)
 
+    # Fetch the existing data from the database
     extensions_df = select_extensions(logger, connection)
     publishers_df = select_publishers(logger, connection)
     extensions_publishers_df = combine_dataframes(
         [extensions_df, publishers_df], ["publisher_id"]
     )
+
+    # Fetch data from VSCode Marketplace
     reviews = get_all_reviews(logger, extensions_publishers_df)
     reviews_df = extract_review_metadata(reviews)
+
+    # Upsert retrieved data to the database
     reviews_df = clean_dataframe(reviews_df)
     upsert_reviews(logger, connection, reviews_df)
 
+    # Close
     connection.close()
