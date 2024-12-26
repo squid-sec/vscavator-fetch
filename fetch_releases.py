@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Fetches extension releases from the VSCode Marketplace"""
 
 import time
 from logging import Logger
@@ -24,10 +22,7 @@ def get_extension_releases(
     page_number: int = 1,
     releases_page_size: int = 100,
 ) -> dict:
-    """
-    get_extension_releases fetches releases metadata for a given extension from
-    the VSCode Marketplace
-    """
+    """Fetches releases metadata for a given extension from the VSCode Marketplace"""
 
     json_data = {
         "assetTypes": None,
@@ -76,9 +71,7 @@ def get_all_releases(
     extensions_df: pd.DataFrame,
     releases_df: pd.DataFrame,
 ) -> dict:
-    """
-    get_all_releases fetches all release metadata from the VSCode Marketplace
-    """
+    """Fetches all release metadata from the VSCode Marketplace"""
 
     all_releases = {}
     extension_data = list(
@@ -115,9 +108,7 @@ def get_all_releases(
 
 
 def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
-    """
-    extract_release_metadata extracts the relevant release information from the raw data
-    """
+    """Extracts the relevant release information from the raw data"""
 
     extension_releases = []
     release_ids = set()
@@ -162,9 +153,7 @@ def upsert_releases(
     releases_df: pd.DataFrame,
     batch_size: int = 5000,
 ) -> None:
-    """
-    upsert_releases upserts the given releases to the database in batches
-    """
+    """Upserts the given releases to the database in batches"""
 
     upsert_query = """
         INSERT INTO releases (
@@ -199,15 +188,22 @@ def upsert_releases(
 
 
 def fetch_releases(logger: Logger):
-    """
-    TODO
-    """
+    """Orchestrates the retrieval of extension release data"""
 
+    # Setup
     connection = connect_to_database(logger)
+
+    # Fetch the existing data from the database
     extensions_df = select_extensions(logger, connection)
     releases_df = select_latest_releases(logger, connection)
+
+    # Fetch data from VSCode Marketplace
     releases = get_all_releases(logger, extensions_df, releases_df)
     releases_df = extract_release_metadata(logger, releases)
+
+    # Upsert retrieved data to the database
     releases_df = clean_dataframe(releases_df)
     upsert_releases(logger, connection, releases_df)
+
+    # Close
     connection.close()

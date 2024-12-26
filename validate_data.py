@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Checks the consistency of the data in the database and S3"""
 
 import os
 from logging import Logger
@@ -19,9 +17,7 @@ from util import (
 
 
 def get_all_object_keys(s3_client: BaseClient) -> list:
-    """
-    get_all_object_keys retrieves all object key names from the bucket
-    """
+    """Retrieves all object key names from the bucket"""
 
     paginator = s3_client.get_paginator("list_objects_v2")
     return [
@@ -32,10 +28,7 @@ def get_all_object_keys(s3_client: BaseClient) -> list:
 
 
 def object_keys_to_dataframe(object_keys: list) -> pd.DataFrame:
-    """
-    object_keys_to_dataframe extracts the publisher name, extension name, and extension
-    version from the S3 object keys
-    """
+    """Extracts the publisher name, extension name, and extension version from the S3 object keys"""
 
     parsed_object_keys = []
 
@@ -55,10 +48,7 @@ def object_keys_to_dataframe(object_keys: list) -> pd.DataFrame:
 def verified_uploaded_to_s3(
     object_keys_df: pd.DataFrame, publisher_name: str, extension_name: str, version: str
 ) -> bool:
-    """
-    verified_uploaded_to_s3 checks if the status of given extension release in the
-    dataframe is uploaded to S3
-    """
+    """Checks if the status of given extension release in the dataframe is uploaded to S3"""
 
     return not object_keys_df.loc[
         (object_keys_df["publisher_name"] == publisher_name)
@@ -71,9 +61,7 @@ def select_releases(
     logger: Logger,
     connection: psycopg2.extensions.connection,
 ) -> pd.DataFrame:
-    """
-    select_releases retrieves all releases from the database in chunks
-    """
+    """Retrieves all releases from the database in chunks"""
 
     query = """
         SELECT
@@ -87,10 +75,9 @@ def select_releases(
 def validate_data(
     logger: Logger,
 ) -> None:
-    """
-    validate_data_consistency checks that the data in the database matches what exists in S3
-    """
+    """Checks that the data in the database matches what exists in S3"""
 
+    # Setup
     connection = connect_to_database(logger)
     s3_client = boto3.client("s3")
 
@@ -129,5 +116,6 @@ def validate_data(
                 s3_uploaded_to_s3,
             )
 
+    # Close
     connection.close()
     s3_client.close()

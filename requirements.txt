@@ -5,5 +5,3 @@ psycopg2_binary
 python-dotenv
 python_dateutil
 Requests
-responses
-urllib3

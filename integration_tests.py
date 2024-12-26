@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Integration tests"""
 
 import logging
 import json
@@ -34,7 +32,7 @@ logger = logging.getLogger("integration test")
 
 
 def fetch_extensions_integration_test():
-    """TODO"""
+    """Integration test for fetching extension and publisher data"""
 
     num_total_extensions = get_total_number_of_extensions(logger)
     print(f"Total number of extensions in the marketplace: {num_total_extensions}")
@@ -70,7 +68,7 @@ def fetch_extensions_integration_test():
 
 
 def fetch_releases_integration_test():
-    """TODO"""
+    """Integration test for fetching release data"""
 
     connection = connect_to_database(logger)
 
@@ -98,7 +96,7 @@ def fetch_releases_integration_test():
 
 
 def fetch_reviews_integration_test():
-    """TODO"""
+    """Integration test for fetching review data"""
 
     connection = connect_to_database(logger)
 
@@ -132,7 +130,7 @@ def fetch_reviews_integration_test():
 
 
 def main() -> None:
-    """TODO"""
+    """Runs the integration tests"""
 
     fetch_extensions_integration_test()
     fetch_releases_integration_test()

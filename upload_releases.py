@@ -1,6 +1,4 @@
-"""
-TODO
-"""
+"""Downloads .vsix extension files from the VSCode marketplace and uploads them to S3"""
 
 import os
 from logging import Logger
@@ -25,10 +23,7 @@ def upload_extension_to_s3(
     s3_client: BaseClient,
     extension_info: dict,
 ) -> bool:
-    """
-    upload_extension_to_s3 fetches the given extension from VSCode Marketplace and
-    uploads the .vsix file to S3
-    """
+    """Fetches the given extension from VSCode Marketplace and uploads the .vsix file to S3"""
 
     publisher_name = extension_info["publisher_name"]
     extension_name = extension_info["extension_name"]
@@ -83,9 +78,7 @@ def upload_all_extensions_to_s3(
     s3_client: BaseClient,
     combined_df: pd.DataFrame,
 ) -> None:
-    """
-    upload_all_extensions_to_s3 fetches and uploads the given extensions to S3
-    """
+    """Fetches and uploads the given extensions to S3"""
 
     for _, row in combined_df.iterrows():
         extension_id = row["extension_id"]
@@ -124,20 +117,25 @@ def upload_all_extensions_to_s3(
 
 
 def upload_releases(logger: Logger):
-    """
-    TODO
-    """
+    """Orchestrates the retrieval of extension files and their upload to S3"""
 
-    s3_client = boto3.client("s3")
+    # Setup
     connection = connect_to_database(logger)
+    s3_client = boto3.client("s3")
+
+    # Fetch the existing data from the database
     extensions_df = select_extensions(logger, connection)
     publishers_df = select_publishers(logger, connection)
     releases_df = select_latest_releases(logger, connection)
     extensions_publishers_releases_df = combine_dataframes(
         [releases_df, extensions_df, publishers_df], ["extension_id", "publisher_id"]
     )
+
+    # Fetch the extensions from the marketplace and upload them to S3
     upload_all_extensions_to_s3(
         logger, connection, s3_client, extensions_publishers_releases_df
     )
+
+    # Close
     connection.close()
     s3_client.close()
