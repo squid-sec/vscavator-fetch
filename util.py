@@ -8,6 +8,7 @@ from logging import Logger
 import psycopg2
 from psycopg2.extras import execute_values
 import pandas as pd
+import responses
 
 
 def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
@@ -188,3 +189,15 @@ def select_latest_releases(
             row_num = 1;
     """
     return select_data(logger, connection, "releases", query)
+
+
+def add_mock_response(url, mock_response, status=200):
+    """
+    Utility to add a mocked API response to the responses library.
+    """
+    responses.add(
+        responses.POST,
+        url,
+        json=mock_response,
+        status=status,
+    )

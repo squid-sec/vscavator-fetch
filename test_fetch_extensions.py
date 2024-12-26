@@ -6,12 +6,14 @@ import unittest
 from unittest.mock import MagicMock
 import responses
 
+from util import add_mock_response
 from fetch_extensions import (
     get_total_number_of_extensions,
     calculate_number_of_extension_pages,
     get_extensions,
+    extract_extension_statistics,
+    extract_extension_github_url,
 )
-from fetch_releases import get_extension_releases
 
 
 class TestGetTotalNumberOfExtensions(unittest.TestCase):
@@ -42,12 +44,7 @@ class TestGetTotalNumberOfExtensions(unittest.TestCase):
             ]
         }
 
-        responses.add(
-            responses.POST,
-            extensions_url,
-            json=mock_response,
-            status=200,
-        )
+        add_mock_response(extensions_url, mock_response, 200)
 
         # Call the function
         total_count = get_total_number_of_extensions(mock_logger)
@@ -122,12 +119,7 @@ class TestGetExtensions(unittest.TestCase):
         mock_extensions = [{"id": "ext1"}, {"id": "ext2"}]
         mock_response = {"results": [{"extensions": mock_extensions}]}
 
-        responses.add(
-            responses.POST,
-            extensions_url,
-            json=mock_response,
-            status=200,
-        )
+        add_mock_response(extensions_url, mock_response, 200)
 
         # Call the function
         page_number = 1
@@ -162,88 +154,76 @@ class TestGetExtensions(unittest.TestCase):
         self.assertEqual(extensions, [])
 
 
-class TestGetExtensionReleases(unittest.TestCase):
+class TestExtractExtensionStatistics(unittest.TestCase):
     """TODO"""
 
-    @responses.activate
-    def test_get_extension_releases_success(self):
+    def test_extract_extension_statistics(self):
         """TODO"""
+        input_statistics = [
+            {"statisticName": "install", "value": 1500},
+            {"statisticName": "averagerating", "value": 4.5},
+            {"statisticName": "ratingcount", "value": 200},
+            {"statisticName": "trendingdaily", "value": 50},
+            {"statisticName": "trendingmonthly", "value": 100},
+            {"statisticName": "trendingweekly", "value": 70},
+            {"statisticName": "updateCount", "value": 10},
+            {"statisticName": "weightedRating", "value": 4.7},
+            {"statisticName": "downloadCount", "value": 5000},
+            {"statisticName": "irrelevantStat", "value": 9999},
+        ]
 
-        extensions_url = (
-            "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-        )
-
-        # Mock logger
-        mock_logger = MagicMock()
-
-        # Mock API response
-        extension_identifier = "publisher.extension"
-        mock_response = {
-            "results": [
-                {
-                    "extensions": [
-                        {
-                            "versions": [
-                                {
-                                    "version": "1.0.0",
-                                    "lastUpdated": "2024-12-01T00:00:00Z",
-                                },
-                                {
-                                    "version": "1.1.0",
-                                    "lastUpdated": "2024-12-10T00:00:00Z",
-                                },
-                            ]
-                        }
-                    ]
-                }
-            ]
+        expected_output = {
+            "install": 1500,
+            "averagerating": 4.5,
+            "ratingcount": 200,
+            "trendingdaily": 50,
+            "trendingmonthly": 100,
+            "trendingweekly": 70,
+            "updateCount": 10,
+            "weightedRating": 4.7,
+            "downloadCount": 5000,
         }
 
-        responses.add(
-            responses.POST,
-            extensions_url,
-            json=mock_response,
-            status=200,
-        )
+        actual_output = extract_extension_statistics(input_statistics)
 
-        # Call the function
-        releases = get_extension_releases(
-            logger=mock_logger,
-            extension_identifier=extension_identifier,
-        )
+        self.assertEqual(actual_output, expected_output)
 
-        # Assertions
-        self.assertEqual(len(releases), 2)
-        self.assertEqual(releases[0]["version"], "1.0.0")
-        self.assertEqual(releases[1]["version"], "1.1.0")
 
-    @responses.activate
-    def test_get_extension_releases_failure(self):
+class TestExtractExtensionGithubURL(unittest.TestCase):
+    """TODO"""
+
+    def test_extract_extension_github_url_success(self):
         """TODO"""
+        properties = [
+            {
+                "key": "Microsoft.VisualStudio.Services.Links.GitHub",
+                "value": "https://github.com/example/repo",
+            },
+            {"key": "Other.Property", "value": "Some Value"},
+        ]
 
-        extensions_url = (
-            "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-        )
+        expected_output = "https://github.com/example/repo"
+        actual_output = extract_extension_github_url(properties)
+        self.assertEqual(actual_output, expected_output)
 
-        # Mock logger
-        mock_logger = MagicMock()
+    def test_extract_extension_github_url_no_github_url(self):
+        """TODO"""
+        properties = [
+            {"key": "Some.Other.Key", "value": "https://other-link.com"},
+            {"key": "Other.Property", "value": "Some Value"},
+        ]
 
-        # Mock API failure response
-        extension_identifier = "publisher.extension"
-        responses.add(
-            responses.POST,
-            extensions_url,
-            status=500,
-        )
+        expected_output = ""
+        actual_output = extract_extension_github_url(properties)
+        self.assertEqual(actual_output, expected_output)
 
-        # Call the function
-        releases = get_extension_releases(
-            logger=mock_logger,
-            extension_identifier=extension_identifier,
-        )
+    def test_extract_extension_github_url_empty_properties(self):
+        """TODO"""
+        properties = []
 
-        # Assertions
-        self.assertEqual(releases, {})
+        expected_output = ""
+        actual_output = extract_extension_github_url(properties)
+        self.assertEqual(actual_output, expected_output)
 
 
 if __name__ == "__main__":
