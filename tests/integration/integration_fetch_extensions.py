@@ -4,7 +4,12 @@ TODO
 
 import logging
 import json
+import os
+import sys
 
+sys.path.append(os.path.realpath("../.."))
+
+# pylint: disable=C0413
 from fetch_extensions import (
     get_total_number_of_extensions,
     calculate_number_of_extension_pages,
@@ -12,6 +17,8 @@ from fetch_extensions import (
     extract_extension_metadata,
     extract_publisher_metadata,
 )
+
+# pylint: enable=C0413
 
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger("integration test")
