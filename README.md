@@ -1,6 +1,6 @@
 # VSCavator Fetch
 
-VSCavator Fetch enumerates every VSCode extension publisher and release on the marketplace storing the data in a Postgres database (extension, publisher, and release metadata) and S3 bucket (raw extension files). This script is the backbone of the VSCavator application.
+VSCavator Fetch enumerates every VSCode extension publisher and release on the marketplace storing the data in a Postgres database (extension, publisher, release, and review metadata) and S3 bucket (raw extension files). This script is the backbone of the VSCavator application.
 
 ### RFCs
 

@@ -90,10 +90,15 @@ def get_all_releases(
     )
 
     for extension_id, extension_identifier, extensions_latest_version in extension_data:
-        releases_latest_version = releases_df["extension_id" == extension_id]["version"]
+        releases_latest_version = releases_df[
+            releases_df["extension_id"] == extension_id
+        ]["version"]
 
         # Check if the latest release has already been fetched for the extension in a previous run
-        if extensions_latest_version == releases_latest_version:
+        if (
+            not releases_latest_version.empty
+            and extensions_latest_version == releases_latest_version.iloc[0]
+        ):
             logger.info(
                 "get_all_releases: Skipped fetching the releases for %s "
                 "since they have already been retrieved",

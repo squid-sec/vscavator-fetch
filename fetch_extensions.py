@@ -206,7 +206,7 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
     return pd.DataFrame(extensions_metadata)
 
 
-def extract_publisher_metadata(logger: Logger, extensions: list) -> pd.DataFrame:
+def extract_publisher_metadata(extensions: list) -> pd.DataFrame:
     """
     extract_publisher_metadata extracts relevant publisher information from the raw data
     """
@@ -220,10 +220,6 @@ def extract_publisher_metadata(logger: Logger, extensions: list) -> pd.DataFrame
 
         # Deduplicate publisher data
         if publisher_id in unique_publishers:
-            logger.info(
-                "extract_publisher_metadata: Duplicate publisher found with ID %s",
-                publisher_id,
-            )
             continue
         unique_publishers.add(publisher_id)
 
@@ -415,7 +411,7 @@ def fetch_extensions_and_publishers(logger: Logger):
 
     extensions = get_all_extensions(logger, num_extension_pages)
     extensions_df = extract_extension_metadata(extensions)
-    publishers_df = extract_publisher_metadata(logger, extensions)
+    publishers_df = extract_publisher_metadata(extensions)
 
     publishers_df = clean_dataframe(publishers_df)
     extensions_df = clean_dataframe(extensions_df)

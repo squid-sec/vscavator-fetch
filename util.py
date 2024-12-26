@@ -8,6 +8,7 @@ from logging import Logger
 import psycopg2
 from psycopg2.extras import execute_values
 import pandas as pd
+import responses
 
 
 def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
@@ -133,6 +134,8 @@ def select_extensions(
         SELECT
             extension_id,
             extension_identifier,
+            extension_name,
+            publisher_id,
             latest_release_version
         FROM
             extensions;
@@ -171,6 +174,7 @@ def select_latest_releases(
             SELECT
                 extension_id,
                 version,
+                uploaded_to_s3,
                 ROW_NUMBER() OVER (
                     PARTITION BY extension_id 
                     ORDER BY
@@ -188,3 +192,15 @@ def select_latest_releases(
             row_num = 1;
     """
     return select_data(logger, connection, "releases", query)
+
+
+def add_mock_response(url, mock_response, status=200):
+    """
+    Utility to add a mocked API response to the responses library.
+    """
+    responses.add(
+        responses.POST,
+        url,
+        json=mock_response,
+        status=status,
+    )
