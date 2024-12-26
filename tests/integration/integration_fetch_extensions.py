@@ -18,8 +18,6 @@ from fetch_extensions import (
     extract_publisher_metadata,
 )
 
-# pylint: enable=C0413
-
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger("integration test")
 

@@ -5,6 +5,12 @@ test_vscavator.py
 import unittest
 from unittest.mock import MagicMock
 import responses
+import os
+import sys
+
+sys.path.append(os.path.realpath("../.."))
+
+# pylint: disable=C0413
 
 from util import add_mock_response
 from fetch_extensions import (
