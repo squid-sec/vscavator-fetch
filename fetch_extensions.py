@@ -30,7 +30,7 @@ def get_total_number_of_extensions(logger: Logger) -> int:
                 "pageNumber": 1,
             },
         ],
-        "flags": 0x100,  # Include statistics
+        "flags": 0x100, # Include statistics
     }
 
     response = requests.post(
@@ -95,11 +95,11 @@ def get_extensions(
                 ],
                 "pageSize": extensions_page_size,
                 "pageNumber": page_number,
-                "sortBy": 2,  # Title
-                "sortOrder": 1,  # Ascending
+                "sortBy": 2, # Title
+                "sortOrder": 1, # Ascending
             },
         ],
-        "flags": 0x100,  # Include statistics
+        "flags": 0x100, # Include statistics
     }
 
     response = requests.post(

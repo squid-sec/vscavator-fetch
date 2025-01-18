@@ -2,6 +2,7 @@
 
 import os
 from logging import Logger
+import tempfile
 import boto3
 from botocore.client import BaseClient
 import requests
@@ -42,7 +43,17 @@ def upload_extension_to_s3(
             f"extensions/{publisher_name}/{extension_name}/{extension_version}.vsix"
         )
 
-        s3_client.upload_fileobj(response.raw, os.getenv("S3_BUCKET_NAME"), s3_key)
+        # Use a temporary file to store the .vsix file
+        with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+            # Write response content to the temporary file
+            for chunk in response.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+
+            temp_file.seek(0) # Rewind the file to the beginning
+
+            # Upload the temporary file to S3
+            s3_client.upload_file(temp_file.name, os.getenv("S3_BUCKET_NAME"), s3_key)
+
         logger.info(
             "upload_extension_to_s3: Uploaded extension to S3: s3://%s/%s",
             os.getenv("S3_BUCKET_NAME"),
