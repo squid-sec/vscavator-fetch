@@ -22,15 +22,6 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
         github_url TEXT NOT NULL,
-        install BIGINT NOT NULL,
-        average_rating FLOAT NOT NULL,
-        rating_count BIGINT NOT NULL,
-        trending_daily FLOAT NOT NULL,
-        trending_monthly FLOAT NOT NULL,
-        trending_weekly FLOAT NOT NULL,
-        update_count BIGINT NOT NULL,
-        weighted_rating FLOAT NOT NULL,
-        download_count BIGINT NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -68,6 +59,23 @@ CREATE_REVIEWS_TABLE_QUERY = """
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
+CREATE_STATISTICS_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS statistics (
+        statistic_id VARCHAR(255) PRIMARY KEY NOT NULL,
+        extension_id VARCHAR(255) NOT NULL,
+        insertion_date DATE NOT NULL,
+        install BIGINT NOT NULL,
+        average_rating FLOAT NOT NULL,
+        rating_count BIGINT NOT NULL,
+        trending_daily FLOAT NOT NULL,
+        trending_monthly FLOAT NOT NULL,
+        trending_weekly FLOAT NOT NULL,
+        update_count BIGINT NOT NULL,
+        weighted_rating FLOAT NOT NULL,
+        download_count BIGINT NOT NULL,
+        FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
+    );
+"""
 
 
 def create_table(
@@ -101,6 +109,7 @@ def setup_db(logger: Logger) -> None:
     create_table(logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
     create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
     create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
+    create_table(logger, connection, "statistics", CREATE_STATISTICS_TABLE_QUERY)
     connection.close()
 
 

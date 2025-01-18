@@ -2,6 +2,8 @@
 
 import time
 from logging import Logger
+from typing import Tuple
+from datetime import date
 import requests
 import pandas as pd
 from dateutil import parser
@@ -143,11 +145,13 @@ def get_all_extensions(
     return all_extensions
 
 
-def extract_extension_metadata(extensions: list) -> pd.DataFrame:
+def extract_extension_metadata(extensions: list) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Extracts relevant extension information from the raw data"""
 
     unique_extensions = set()
     extensions_metadata = []
+    statistics_metadata = []
+    today = date.today()
 
     for extension in extensions:
         extension_id = extension["extensionId"]
@@ -179,6 +183,14 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
                 "publisher_id": extension["publisher"]["publisherId"],
                 "extension_identifier": extension_identifier,
                 "github_url": github_url,
+            }
+        )
+
+        statistics_metadata.append(
+            {
+                "statistic_id": extension_id + "-" + str(today),
+                "extension_id": extension_id,
+                "insertion_date": today,
                 "install": statistics["install"],
                 "average_rating": statistics["averagerating"],
                 "rating_count": statistics["ratingcount"],
@@ -191,7 +203,7 @@ def extract_extension_metadata(extensions: list) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(extensions_metadata)
+    return pd.DataFrame(extensions_metadata), pd.DataFrame(statistics_metadata)
 
 
 def extract_publisher_metadata(extensions: list) -> pd.DataFrame:
@@ -270,8 +282,7 @@ def upsert_extensions(
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
             short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
-            extension_identifier, github_url, install, average_rating, rating_count, trending_daily, trending_monthly, 
-            trending_weekly, update_count, weighted_rating, download_count
+            extension_identifier, github_url
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
             extension_name = EXCLUDED.extension_name,
@@ -285,16 +296,7 @@ def upsert_extensions(
             latest_release_asset_uri = EXCLUDED.latest_release_asset_uri,
             publisher_id = EXCLUDED.publisher_id,
             extension_identifier = EXCLUDED.extension_identifier,
-            github_url = EXCLUDED.github_url,
-            install = EXCLUDED.install,
-            average_rating = EXCLUDED.average_rating,
-            rating_count = EXCLUDED.rating_count,
-            trending_daily = EXCLUDED.trending_daily,
-            trending_monthly = EXCLUDED.trending_monthly,
-            trending_weekly = EXCLUDED.trending_weekly,
-            update_count = EXCLUDED.update_count,
-            weighted_rating = EXCLUDED.weighted_rating,
-            download_count = EXCLUDED.download_count;
+            github_url = EXCLUDED.github_url;
     """
 
     values = [
@@ -312,15 +314,6 @@ def upsert_extensions(
             row["publisher_id"],
             row["extension_identifier"],
             row["github_url"],
-            row["install"],
-            row["average_rating"],
-            row["rating_count"],
-            row["trending_daily"],
-            row["trending_monthly"],
-            row["trending_weekly"],
-            row["update_count"],
-            row["weighted_rating"],
-            row["download_count"],
         )
         for _, row in extensions_df.iterrows()
     ]
@@ -377,6 +370,61 @@ def upsert_publishers(
         )
 
 
+def upsert_statistics(
+    logger: Logger,
+    connection: psycopg2.extensions.connection,
+    statistics_df: pd.DataFrame,
+    batch_size: int = 5000,
+) -> None:
+    """Upserts the given statistics to the database in batches"""
+
+    upsert_query = """
+        INSERT INTO statistics (
+            statistic_id, extension_id, insertion_date, install, average_rating, rating_count, trending_daily,
+            trending_monthly, trending_weekly, update_count, weighted_rating, download_count
+        ) VALUES %s
+        ON CONFLICT (statistic_id) DO UPDATE SET
+            extension_id = EXCLUDED.extension_id,
+            insertion_date = EXCLUDED.insertion_date,
+            install = EXCLUDED.install,
+            average_rating = EXCLUDED.average_rating,
+            rating_count = EXCLUDED.rating_count,
+            trending_daily = EXCLUDED.trending_daily,
+            trending_monthly = EXCLUDED.trending_monthly,
+            trending_weekly = EXCLUDED.trending_weekly,
+            update_count = EXCLUDED.update_count,
+            weighted_rating = EXCLUDED.weighted_rating,
+            download_count = EXCLUDED.download_count;
+    """
+
+    values = [
+        (
+            row["statistic_id"],
+            row["extension_id"],
+            row["insertion_date"],
+            row["install"],
+            row["average_rating"],
+            row["rating_count"],
+            row["trending_daily"],
+            row["trending_monthly"],
+            row["trending_weekly"],
+            row["update_count"],
+            row["weighted_rating"],
+            row["download_count"],
+        )
+        for _, row in statistics_df.iterrows()
+    ]
+
+    for i in range(0, len(values), batch_size):
+        batch = values[i : i + batch_size]
+        upsert_data(logger, connection, "statistics", upsert_query, batch)
+        logger.info(
+            "upsert_statistics: Upserted statistics batch %d of %d rows",
+            i // batch_size + 1,
+            len(batch),
+        )
+
+
 def fetch_extensions_and_publishers(logger: Logger):
     """Orchestrates the retrieval of extension and publisher data"""
 
@@ -389,14 +437,16 @@ def fetch_extensions_and_publishers(logger: Logger):
 
     # Fetch data from VSCode Marketplace
     extensions = get_all_extensions(logger, num_extension_pages)
-    extensions_df = extract_extension_metadata(extensions)
+    extensions_df, statistics_df = extract_extension_metadata(extensions)
     publishers_df = extract_publisher_metadata(extensions)
 
     # Upsert retrieved data to the database
     publishers_df = clean_dataframe(publishers_df)
     extensions_df = clean_dataframe(extensions_df)
+    statistics_df = clean_dataframe(statistics_df)
     upsert_publishers(logger, connection, publishers_df)
     upsert_extensions(logger, connection, extensions_df)
+    upsert_statistics(logger, connection, statistics_df)
 
     # Close
     connection.close()
