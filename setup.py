@@ -49,7 +49,7 @@ CREATE_RELEASES_TABLE_QUERY = """
         release_id VARCHAR(255) PRIMARY KEY NOT NULL,
         extension_id VARCHAR(255) NOT NULL,
         version VARCHAR(255) NOT NULL,
-        last_updated DATE NOT NULL,
+        last_updated DATE,
         flags TEXT,
         uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE

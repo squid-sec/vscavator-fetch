@@ -110,7 +110,7 @@ def get_all_releases(
 def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
     """Extracts the relevant release information from the raw data"""
 
-    extension_releases = []
+    release_metadata = []
     release_ids = set()
 
     for extension_id in releases:
@@ -131,7 +131,7 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
                 continue
             release_ids.add(release_id)
 
-            extension_releases.append(
+            release_metadata.append(
                 {
                     "release_id": release_id,
                     "version": extension_version,
@@ -142,7 +142,7 @@ def extract_release_metadata(logger: Logger, releases: list) -> pd.DataFrame:
             )
 
     return pd.DataFrame(
-        extension_releases,
+        release_metadata,
         columns=["release_id", "version", "extension_id", "flags", "last_updated"],
     )
 
@@ -172,7 +172,7 @@ def upsert_releases(
             row["version"],
             row["extension_id"],
             row["flags"],
-            row["last_updated"],
+            row["last_updated"] if not pd.isna(row["last_updated"]) else None,
         )
         for _, row in releases_df.iterrows()
     ]
