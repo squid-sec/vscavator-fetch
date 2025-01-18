@@ -49,7 +49,7 @@ def upload_extension_to_s3(
             for chunk in response.iter_content(chunk_size=8192):
                 temp_file.write(chunk)
 
-            temp_file.seek(0) # Rewind the file to the beginning
+            temp_file.seek(0)  # Rewind the file to the beginning
 
             # Upload the temporary file to S3
             s3_client.upload_file(temp_file.name, os.getenv("S3_BUCKET_NAME"), s3_key)
