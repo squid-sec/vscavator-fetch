@@ -65,7 +65,9 @@ def select_releases(
 
     query = """
         SELECT
-            extension_id
+            extension_id,
+            version,
+            uploaded_to_s3
         FROM
             releases;
     """
