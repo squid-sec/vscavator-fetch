@@ -87,7 +87,8 @@ def clean_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     # Strip leading and trailing spaces from string columns
     for col in dataframe.select_dtypes(include=["object"]):
-        dataframe[col] = dataframe[col].str.strip()
+        if isinstance(dataframe[col], str):
+            dataframe[col] = dataframe[col].str.strip()
 
     return dataframe
 

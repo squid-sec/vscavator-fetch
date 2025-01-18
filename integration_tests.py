@@ -50,9 +50,11 @@ def fetch_extensions_integration_test():
     print("\nThe first extension retrieved:")
     print(json.dumps(extensions[0], indent=4))
 
-    extensions_df = extract_extension_metadata(extensions)
+    extensions_df, statistics_df = extract_extension_metadata(extensions)
     print("\nThe first five rows of the extension dataframe:")
     print(extensions_df.head())
+    print("\nThe first five rows of the statistics dataframe:")
+    print(statistics_df.head())
 
     publishers_df = extract_publisher_metadata(extensions)
     print("\nThe first five rows of the publisher dataframe:")
