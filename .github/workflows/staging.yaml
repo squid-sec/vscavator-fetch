@@ -1,14 +1,12 @@
-name: Deploy Docker image to AWS ECS Fargate Scheduled Task
+name: Staging - Deploy Docker image to AWS ECS Fargate Scheduled Task
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: dev/vscavator-fetch
+  ECR_REPOSITORY: staging/vscavator-fetch
 
 permissions:
   id-token: write
@@ -18,7 +16,7 @@ jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-    environment: dev
+    environment: staging
 
     steps:
     - name: Git clone the repository
@@ -55,13 +53,13 @@ jobs:
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
-        task-definition: .aws/task-definition.json
-        container-name: DevVscavatorFetchScript
+        task-definition: .aws/staging-task-definition.json
+        container-name: StagingVscavatorFetchScript
         image: ${{ steps.build-image.outputs.image }}
 
     - name: Deploy to Amazon ECS Scheduled Tasks
       uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.1.0
       with:
-        cluster: DevCluster
-        rule-prefix: DevVscavatorFetchScript
+        cluster: StagingCluster
+        rule-prefix: StagingVscavatorFetchScript
         task-definition: ${{ steps.task-def.outputs.task-definition }}

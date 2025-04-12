@@ -1,0 +1,5 @@
+name: Production - Deploy Docker image to AWS ECS Fargate Scheduled Task
+
+on:
+  release:
+    ...
