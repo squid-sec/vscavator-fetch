@@ -59,12 +59,12 @@ def get_total_number_of_extensions(logger: Logger) -> int:
 
         return total_count
 
-    logger.critical(
+    logger.error(
         "get_total_number_of_extensions: Error fetching number of extensions: "
         "status code %d",
         response.status_code,
     )
-    return 0
+    return -1
 
 
 def calculate_number_of_extension_pages(
@@ -120,13 +120,13 @@ def get_extensions(
         )
         return extensions
 
-    logger.critical(
+    logger.error(
         "get_extensions: Error fetching extensions from page number %d: "
         "status code %d",
         page_number,
         response.status_code,
     )
-    return []
+    return None
 
 
 def get_all_extensions(
@@ -140,6 +140,13 @@ def get_all_extensions(
     for page_number in range(1, last_page_number + 1):
         time.sleep(1)
         extensions = get_extensions(logger, page_number)
+        if extensions is None:
+            logger.error(
+                "get_all_extensions: Failed to get extensions on page number %d",
+                page_number,
+            )
+            return None
+
         all_extensions.extend(extensions)
 
     return all_extensions
@@ -166,7 +173,8 @@ def extract_extension_metadata(extensions: list) -> Tuple[pd.DataFrame, pd.DataF
         latest_version = extension["versions"][0]
         properties = latest_version.get("properties", {})
         github_url = extract_extension_github_url(properties)
-        statistics = extract_extension_statistics(extension["statistics"])
+        extension_statistics = extension.get("statistics", {})
+        statistics = extract_extension_statistics(extension_statistics)
 
         extensions_metadata.append(
             {
@@ -191,15 +199,15 @@ def extract_extension_metadata(extensions: list) -> Tuple[pd.DataFrame, pd.DataF
                 "statistic_id": extension_id + "-" + str(today),
                 "extension_id": extension_id,
                 "insertion_date": today,
-                "install": statistics["install"],
-                "average_rating": statistics["averagerating"],
-                "rating_count": statistics["ratingcount"],
-                "trending_daily": statistics["trendingdaily"],
-                "trending_monthly": statistics["trendingmonthly"],
-                "trending_weekly": statistics["trendingweekly"],
-                "update_count": statistics["updateCount"],
-                "weighted_rating": statistics["weightedRating"],
-                "download_count": statistics["downloadCount"],
+                "install": statistics.get("install", -1),
+                "average_rating": statistics.get("averagerating", -1),
+                "rating_count": statistics.get("ratingcount", -1),
+                "trending_daily": statistics.get("trendingdaily", -1),
+                "trending_monthly": statistics.get("trendingmonthly", -1),
+                "trending_weekly": statistics.get("trendingweekly", -1),
+                "update_count": statistics.get("updateCount", -1),
+                "weighted_rating": statistics.get("weightedRating", -1),
+                "download_count": statistics.get("downloadCount", -1),
             }
         )
 
@@ -425,18 +433,35 @@ def upsert_statistics(
         )
 
 
-def fetch_extensions_and_publishers(logger: Logger):
+def fetch_extensions_and_publishers(logger: Logger) -> bool:
     """Orchestrates the retrieval of extension and publisher data"""
 
     # Setup
     connection = connect_to_database(logger)
+    if not connection:
+        logger.error("fetch_extensions_and_publishers: Failed to connect to database")
+        return False
 
     # Scope extension retrieval
     num_total_extensions = get_total_number_of_extensions(logger)
+    if num_total_extensions == -1:
+        logger.error(
+            "fetch_extensions_and_publishers: Failed to get the total number of extensions"
+        )
+        return False
+
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
 
     # Fetch data from VSCode Marketplace
     extensions = get_all_extensions(logger, num_extension_pages)
+    if extensions is None:
+        logger.error(
+            "fetch_extensions_and_publishers: Failed to get all %d extensions from %d pages",
+            num_total_extensions,
+            num_extension_pages,
+        )
+        return False
+
     extensions_df, statistics_df = extract_extension_metadata(extensions)
     publishers_df = extract_publisher_metadata(extensions)
 
@@ -450,3 +475,5 @@ def fetch_extensions_and_publishers(logger: Logger):
 
     # Close
     connection.close()
+
+    return True

@@ -16,16 +16,14 @@ def main() -> None:
     # Setup
     load_dotenv()
     logger = configure_logger()
-    setup_db(logger)
+    if not setup_db(logger):
+        logger.error("main: Failed to setup the database")
+        return
 
     # Fetch data from VSCode Marketplace
-    fetch_extensions_and_publishers(logger)
-    fetch_releases(logger)
-    fetch_reviews(logger)
-    upload_releases(logger)
-
-    # Validate data in the database and S3
-    validate_data(logger)
+    if not fetch_extensions_and_publishers(logger):
+        logger.error("main: Failed to fetch data from the VSCode Marketplace")
+        return
 
 
 if __name__ == "__main__":

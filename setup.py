@@ -83,7 +83,7 @@ def create_table(
     connection: psycopg2.extensions.connection,
     table_name: str,
     create_table_query: str,
-) -> None:
+) -> bool:
     """Executes the create table query for the given table"""
 
     if connection is None:
@@ -91,7 +91,7 @@ def create_table(
             "create_table: Failed to create %s table: no database connection",
             table_name,
         )
-        return
+        return False
 
     cursor = connection.cursor()
     cursor.execute(create_table_query)
@@ -99,18 +99,42 @@ def create_table(
     cursor.close()
 
     logger.info("create_table: Created %s table", table_name)
+    return True
 
 
-def setup_db(logger: Logger) -> None:
+def setup_db(logger: Logger) -> bool:
     """Creates the publishers, extensions, releases, and reviews tables"""
 
     connection = connect_to_database(logger)
-    create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
-    create_table(logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
-    create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
-    create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
-    create_table(logger, connection, "statistics", CREATE_STATISTICS_TABLE_QUERY)
-    connection.close()
+    if not connection:
+        logger.error("setup_db: Failed to connect to database")
+        return False
+
+    publishers = create_table(
+        logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY
+    )
+    extensions = create_table(
+        logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY
+    )
+    releases = create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
+    reviews = create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
+    statistics = create_table(
+        logger, connection, "statistics", CREATE_STATISTICS_TABLE_QUERY
+    )
+
+    if (
+        not publishers
+        or not extensions
+        or not releases
+        or not reviews
+        or not statistics
+    ):
+        logger.error("setup_db: Failed to create the tables")
+        connection.close()
+        return False
+
+    logger.info("setup_db: Created the tables")
+    return True
 
 
 def configure_logger() -> Logger:
