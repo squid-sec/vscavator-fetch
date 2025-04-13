@@ -11,12 +11,19 @@ import pandas as pd
 def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
     """Establishes a connection to the SQL database"""
 
+    use_ssl = os.getenv("SSL", "false").lower() == "true"
+    ssl_config = {
+        "sslmode": "require",
+        "sslrootcert": "us-east-1-bundle.pem",
+    } if use_ssl else {}
+
     connection = psycopg2.connect(
         dbname=os.getenv("PG_DATABASE"),
         user=os.getenv("PG_USER"),
         password=os.getenv("PG_PASSWORD"),
         host=os.getenv("PG_HOST"),
         port=os.getenv("PG_PORT"),
+        **ssl_config,
     )
 
     if connection:
