@@ -22,6 +22,7 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
         github_url TEXT NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -32,7 +33,8 @@ CREATE_PUBLISHERS_TABLE_QUERY = """
         display_name VARCHAR(255) NOT NULL,
         flags TEXT,
         domain VARCHAR(255),
-        is_domain_verified BOOLEAN NOT NULL
+        is_domain_verified BOOLEAN NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL
     );
 """
 CREATE_RELEASES_TABLE_QUERY = """
@@ -43,6 +45,7 @@ CREATE_RELEASES_TABLE_QUERY = """
         last_updated DATE,
         flags TEXT,
         uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -56,6 +59,7 @@ CREATE_REVIEWS_TABLE_QUERY = """
         rating INT NOT NULL,
         text TEXT NOT NULL,
         product_version VARCHAR(255) NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -63,7 +67,6 @@ CREATE_STATISTICS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS statistics (
         statistic_id VARCHAR(255) PRIMARY KEY NOT NULL,
         extension_id VARCHAR(255) NOT NULL,
-        insertion_date DATE NOT NULL,
         install BIGINT NOT NULL,
         average_rating FLOAT NOT NULL,
         rating_count BIGINT NOT NULL,
@@ -73,6 +76,7 @@ CREATE_STATISTICS_TABLE_QUERY = """
         update_count BIGINT NOT NULL,
         weighted_rating FLOAT NOT NULL,
         download_count BIGINT NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -83,7 +87,7 @@ def create_table(
     connection: psycopg2.extensions.connection,
     table_name: str,
     create_table_query: str,
-) -> None:
+) -> bool:
     """Executes the create table query for the given table"""
 
     if connection is None:
@@ -91,7 +95,7 @@ def create_table(
             "create_table: Failed to create %s table: no database connection",
             table_name,
         )
-        return
+        return False
 
     cursor = connection.cursor()
     cursor.execute(create_table_query)
@@ -99,18 +103,42 @@ def create_table(
     cursor.close()
 
     logger.info("create_table: Created %s table", table_name)
+    return True
 
 
-def setup_db(logger: Logger) -> None:
+def setup_db(logger: Logger) -> bool:
     """Creates the publishers, extensions, releases, and reviews tables"""
 
     connection = connect_to_database(logger)
-    create_table(logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY)
-    create_table(logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY)
-    create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
-    create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
-    create_table(logger, connection, "statistics", CREATE_STATISTICS_TABLE_QUERY)
-    connection.close()
+    if not connection:
+        logger.error("setup_db: Failed to connect to database")
+        return False
+
+    publishers = create_table(
+        logger, connection, "publishers", CREATE_PUBLISHERS_TABLE_QUERY
+    )
+    extensions = create_table(
+        logger, connection, "extensions", CREATE_EXTENSIONS_TABLE_QUERY
+    )
+    releases = create_table(logger, connection, "releases", CREATE_RELEASES_TABLE_QUERY)
+    reviews = create_table(logger, connection, "reviews", CREATE_REVIEWS_TABLE_QUERY)
+    statistics = create_table(
+        logger, connection, "statistics", CREATE_STATISTICS_TABLE_QUERY
+    )
+
+    if (
+        not publishers
+        or not extensions
+        or not releases
+        or not reviews
+        or not statistics
+    ):
+        logger.error("setup_db: Failed to create the tables")
+        connection.close()
+        return False
+
+    logger.info("setup_db: Created the tables")
+    return True
 
 
 def configure_logger() -> Logger:
