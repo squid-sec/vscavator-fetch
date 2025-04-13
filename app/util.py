@@ -12,10 +12,14 @@ def connect_to_database(logger: Logger) -> psycopg2.extensions.connection:
     """Establishes a connection to the SQL database"""
 
     use_ssl = os.getenv("SSL", "false").lower() == "true"
-    ssl_config = {
-        "sslmode": "require",
-        "sslrootcert": "us-east-1-bundle.pem",
-    } if use_ssl else {}
+    ssl_config = (
+        {
+            "sslmode": "require",
+            "sslrootcert": "us-east-1-bundle.pem",
+        }
+        if use_ssl
+        else {}
+    )
 
     connection = psycopg2.connect(
         dbname=os.getenv("PG_DATABASE"),

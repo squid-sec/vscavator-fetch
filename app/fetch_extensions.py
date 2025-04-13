@@ -3,7 +3,8 @@
 import time
 from logging import Logger
 from typing import Tuple
-from datetime import date
+from datetime import datetime
+import uuid
 import requests
 import pandas as pd
 from dateutil import parser
@@ -158,7 +159,6 @@ def extract_extension_metadata(extensions: list) -> Tuple[pd.DataFrame, pd.DataF
     unique_extensions = set()
     extensions_metadata = []
     statistics_metadata = []
-    today = date.today()
 
     for extension in extensions:
         extension_id = extension["extensionId"]
@@ -196,9 +196,7 @@ def extract_extension_metadata(extensions: list) -> Tuple[pd.DataFrame, pd.DataF
 
         statistics_metadata.append(
             {
-                "statistic_id": extension_id + "-" + str(today),
                 "extension_id": extension_id,
-                "insertion_date": today,
                 "install": statistics.get("install", -1),
                 "average_rating": statistics.get("averagerating", -1),
                 "rating_count": statistics.get("ratingcount", -1),
@@ -290,7 +288,7 @@ def upsert_extensions(
         INSERT INTO extensions (
             extension_id, extension_name, display_name, flags, last_updated, published_date, release_date, 
             short_description, latest_release_version, latest_release_asset_uri, publisher_id, 
-            extension_identifier, github_url
+            extension_identifier, github_url, insertion_datetime
         ) VALUES %s
         ON CONFLICT (extension_id) DO UPDATE SET
             extension_name = EXCLUDED.extension_name,
@@ -304,7 +302,8 @@ def upsert_extensions(
             latest_release_asset_uri = EXCLUDED.latest_release_asset_uri,
             publisher_id = EXCLUDED.publisher_id,
             extension_identifier = EXCLUDED.extension_identifier,
-            github_url = EXCLUDED.github_url;
+            github_url = EXCLUDED.github_url,
+            insertion_datetime = EXCLUDED.insertion_datetime;
     """
 
     values = [
@@ -322,6 +321,7 @@ def upsert_extensions(
             row["publisher_id"],
             row["extension_identifier"],
             row["github_url"],
+            datetime.now(),
         )
         for _, row in extensions_df.iterrows()
     ]
@@ -346,14 +346,15 @@ def upsert_publishers(
 
     upsert_query = """
         INSERT INTO publishers (
-            publisher_id, publisher_name, display_name, flags, domain, is_domain_verified
+            publisher_id, publisher_name, display_name, flags, domain, is_domain_verified, insertion_datetime
         ) VALUES %s
         ON CONFLICT (publisher_id) DO UPDATE SET
             publisher_name = EXCLUDED.publisher_name,
             display_name = EXCLUDED.display_name,
             flags = EXCLUDED.flags,
             domain = EXCLUDED.domain,
-            is_domain_verified = EXCLUDED.is_domain_verified;
+            is_domain_verified = EXCLUDED.is_domain_verified,
+            insertion_datetime = EXCLUDED.insertion_datetime;
     """
 
     values = [
@@ -364,6 +365,7 @@ def upsert_publishers(
             row["flags"],
             row["domain"],
             row["is_domain_verified"],
+            datetime.now(),
         )
         for _, row in publishers_df.iterrows()
     ]
@@ -388,12 +390,11 @@ def upsert_statistics(
 
     upsert_query = """
         INSERT INTO statistics (
-            statistic_id, extension_id, insertion_date, install, average_rating, rating_count, trending_daily,
-            trending_monthly, trending_weekly, update_count, weighted_rating, download_count
+            statistic_id, extension_id, install, average_rating, rating_count, trending_daily,
+            trending_monthly, trending_weekly, update_count, weighted_rating, download_count, insertion_datetime
         ) VALUES %s
         ON CONFLICT (statistic_id) DO UPDATE SET
             extension_id = EXCLUDED.extension_id,
-            insertion_date = EXCLUDED.insertion_date,
             install = EXCLUDED.install,
             average_rating = EXCLUDED.average_rating,
             rating_count = EXCLUDED.rating_count,
@@ -402,14 +403,14 @@ def upsert_statistics(
             trending_weekly = EXCLUDED.trending_weekly,
             update_count = EXCLUDED.update_count,
             weighted_rating = EXCLUDED.weighted_rating,
-            download_count = EXCLUDED.download_count;
+            download_count = EXCLUDED.download_count,
+            insertion_datetime = EXCLUDED.insertion_datetime;
     """
 
     values = [
         (
-            row["statistic_id"],
+            str(uuid.uuid4()),
             row["extension_id"],
-            row["insertion_date"],
             row["install"],
             row["average_rating"],
             row["rating_count"],
@@ -419,6 +420,7 @@ def upsert_statistics(
             row["update_count"],
             row["weighted_rating"],
             row["download_count"],
+            datetime.now(),
         )
         for _, row in statistics_df.iterrows()
     ]
@@ -448,6 +450,7 @@ def fetch_extensions_and_publishers(logger: Logger) -> bool:
         logger.error(
             "fetch_extensions_and_publishers: Failed to get the total number of extensions"
         )
+        connection.close()
         return False
 
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
@@ -460,6 +463,7 @@ def fetch_extensions_and_publishers(logger: Logger) -> bool:
             num_total_extensions,
             num_extension_pages,
         )
+        connection.close()
         return False
 
     extensions_df, statistics_df = extract_extension_metadata(extensions)

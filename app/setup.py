@@ -22,6 +22,7 @@ CREATE_EXTENSIONS_TABLE_QUERY = """
         publisher_id VARCHAR(255) NOT NULL,
         extension_identifier VARCHAR(255) NOT NULL,
         github_url TEXT NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (publisher_id) REFERENCES publishers (publisher_id) ON DELETE CASCADE
     );
 """
@@ -32,7 +33,8 @@ CREATE_PUBLISHERS_TABLE_QUERY = """
         display_name VARCHAR(255) NOT NULL,
         flags TEXT,
         domain VARCHAR(255),
-        is_domain_verified BOOLEAN NOT NULL
+        is_domain_verified BOOLEAN NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL
     );
 """
 CREATE_RELEASES_TABLE_QUERY = """
@@ -43,6 +45,7 @@ CREATE_RELEASES_TABLE_QUERY = """
         last_updated DATE,
         flags TEXT,
         uploaded_to_s3 BOOLEAN NOT NULL DEFAULT FALSE,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -56,6 +59,7 @@ CREATE_REVIEWS_TABLE_QUERY = """
         rating INT NOT NULL,
         text TEXT NOT NULL,
         product_version VARCHAR(255) NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
@@ -63,7 +67,6 @@ CREATE_STATISTICS_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS statistics (
         statistic_id VARCHAR(255) PRIMARY KEY NOT NULL,
         extension_id VARCHAR(255) NOT NULL,
-        insertion_date DATE NOT NULL,
         install BIGINT NOT NULL,
         average_rating FLOAT NOT NULL,
         rating_count BIGINT NOT NULL,
@@ -73,6 +76,7 @@ CREATE_STATISTICS_TABLE_QUERY = """
         update_count BIGINT NOT NULL,
         weighted_rating FLOAT NOT NULL,
         download_count BIGINT NOT NULL,
+        insertion_datetime TIMESTAMP NOT NULL,
         FOREIGN KEY (extension_id) REFERENCES extensions (extension_id) ON DELETE CASCADE
     );
 """
