@@ -438,19 +438,12 @@ def upsert_statistics(
 def fetch_extensions_and_publishers(logger: Logger) -> bool:
     """Orchestrates the retrieval of extension and publisher data"""
 
-    # Setup
-    connection = connect_to_database(logger)
-    if not connection:
-        logger.error("fetch_extensions_and_publishers: Failed to connect to database")
-        return False
-
     # Scope extension retrieval
     num_total_extensions = get_total_number_of_extensions(logger)
     if num_total_extensions == -1:
         logger.error(
             "fetch_extensions_and_publishers: Failed to get the total number of extensions"
         )
-        connection.close()
         return False
 
     num_extension_pages = calculate_number_of_extension_pages(num_total_extensions)
@@ -463,7 +456,6 @@ def fetch_extensions_and_publishers(logger: Logger) -> bool:
             num_total_extensions,
             num_extension_pages,
         )
-        connection.close()
         return False
 
     extensions_df, statistics_df = extract_extension_metadata(extensions)
@@ -473,6 +465,13 @@ def fetch_extensions_and_publishers(logger: Logger) -> bool:
     publishers_df = clean_dataframe(publishers_df)
     extensions_df = clean_dataframe(extensions_df)
     statistics_df = clean_dataframe(statistics_df)
+
+    # Connect to database
+    connection = connect_to_database(logger)
+    if not connection:
+        logger.error("fetch_extensions_and_publishers: Failed to connect to database")
+        return False
+
     upsert_publishers(logger, connection, publishers_df)
     upsert_extensions(logger, connection, extensions_df)
     upsert_statistics(logger, connection, statistics_df)
