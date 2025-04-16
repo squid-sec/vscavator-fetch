@@ -55,5 +55,5 @@ jobs:
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
         task-definition: .aws/development-task-definition.json
-        container-name: DevVscavatorFetchScript
+        container-name: DevVscavatorFetch
         image: ${{ steps.build-image.outputs.image }}

@@ -54,12 +54,12 @@ jobs:
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
         task-definition: .aws/staging-task-definition.json
-        container-name: StagingVscavatorFetchScript
+        container-name: StagingVscavatorFetch
         image: ${{ steps.build-image.outputs.image }}
 
     - name: Deploy to Amazon ECS Scheduled Tasks
       uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.1.0
       with:
         cluster: StagingCluster
-        rule-prefix: StagingVscavatorFetchScript
+        rule-prefix: StagingVscavatorFetch
         task-definition: ${{ steps.task-def.outputs.task-definition }}
