@@ -1,26 +1,31 @@
-name: Production - Deploy Docker image to AWS ECS Fargate Scheduled Task
+name: Development - Deploy Docker image to AWS ECS Fargate Scheduled Task
 
 on:
-  release:
-    types: [published]
+  issue_comment:
+    types: [created]
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: production/vscavator-fetch
+  ECR_REPOSITORY: dev/vscavator-fetch
 
 permissions:
   id-token: write
   contents: read
+  pull-requests: read
 
 jobs:
   deploy:
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/deploy-dev')
     name: Deploy
     runs-on: ubuntu-latest
-    environment: production
+    environment: dev
 
     steps:
     - name: Git clone the repository
       uses: actions/checkout@v4
+
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -29,8 +34,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: STS GetCallerIdentity
-      run: |
-        aws sts get-caller-identity
+      run: aws sts get-caller-identity
 
     - name: Login to Amazon ECR
       id: login-ecr
@@ -42,9 +46,6 @@ jobs:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        # Build a docker container and
-        # push it to ECR so that it can
-        # be deployed to ECS.
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
@@ -53,13 +54,6 @@ jobs:
       id: task-def
       uses: aws-actions/amazon-ecs-render-task-definition@v1
       with:
-        task-definition: .aws/production-task-definition.json
-        container-name: ProductionVscavatorFetch
+        task-definition: .aws/development-task-definition.json
+        container-name: DevVscavatorFetch
         image: ${{ steps.build-image.outputs.image }}
-
-    - name: Deploy to Amazon ECS Scheduled Tasks
-      uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.1.0
-      with:
-        cluster: ProductionCluster
-        rule-prefix: ProductionVscavatorFetch
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
