@@ -48,18 +48,3 @@ jobs:
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-    - name: Fill in the new image ID in the Amazon ECS task definition
-      id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: .aws/production-task-definition.json
-        container-name: ProductionVscavatorFetch
-        image: ${{ steps.build-image.outputs.image }}
-
-    - name: Deploy to Amazon ECS Scheduled Tasks
-      uses: airfordable/ecs-deploy-task-definition-to-scheduled-task@v2.1.0
-      with:
-        cluster: ProductionCluster
-        rule-prefix: ProductionVscavatorFetch
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
